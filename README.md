@@ -203,7 +203,7 @@ The RO Framework is built on several key philosophical insights:
 5. **Finite Resolution**: All observers have finite granularity
 6. **Consciousness as Structure**: Consciousness is recursive self-mapping, not a special substance
 
-See [ro_framework.md](ro_framework.md) for the complete theoretical foundation.
+See [ro_framework.md](https://github.com/IdentityOverflow/ROFramework/blob/main/ro_framework.md) for the complete theoretical foundation.
 
 ## Acknowledgments
 
