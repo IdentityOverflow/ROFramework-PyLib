@@ -151,7 +151,7 @@ open htmlcov/index.html
 ## Documentation
 
 Full documentation is coming soon. For now, see:
-- [Theoretical Framework](ro_framework.md) - Complete theoretical foundation
+- [Theoretical Framework](https://github.com/IdentityOverflow/idea_drawer/blob/main/ro_framework/ro_framework.md) - Complete theoretical foundation
 - [Python Formalization](python_formalization.md) - Detailed implementation guide
 - API documentation - Run `pydoc` on modules for docstrings
 
