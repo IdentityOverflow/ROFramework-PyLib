@@ -19,14 +19,14 @@ def continuous_dofs():
     """Create continuous DoFs for testing."""
     x = PolarDoF(
         name="x",
-        pole_negative=-10.0,
-        pole_positive=10.0,
+        pole_negative=-100.0,
+        pole_positive=100.0,
         polar_type=PolarDoFType.CONTINUOUS_BOUNDED,
     )
     y = PolarDoF(
         name="y",
-        pole_negative=-10.0,
-        pole_positive=10.0,
+        pole_negative=-100.0,
+        pole_positive=100.0,
         polar_type=PolarDoFType.CONTINUOUS_BOUNDED,
     )
     time = PolarDoF(

@@ -259,7 +259,7 @@ class TestObserver:
         for i in range(5):
             observer.observe(State(values={external_dof: float(i)}))
 
-        assert len(observer.memory_buffer) == 5
+        assert len(observer.observation_log) == 5
 
     def test_memory_capacity(self) -> None:
         """Test that memory respects capacity limit."""
@@ -278,7 +278,7 @@ class TestObserver:
             external_dofs=[external_dof],
             world_model=SimpleMapping(),
             temporal_dof=temporal_dof,
-            memory_capacity=3,
+            log_capacity=3,
         )
 
         # Make more observations than capacity
@@ -286,7 +286,7 @@ class TestObserver:
             observer.observe(State(values={external_dof: float(i)}))
 
         # Should only keep last 3
-        assert len(observer.memory_buffer) == 3
+        assert len(observer.observation_log) == 3
 
     def test_is_conscious(self) -> None:
         """Test consciousness detection."""
@@ -369,11 +369,11 @@ class TestObserver:
         for i in range(5):
             observer.observe(State(values={external_dof: float(i)}))
 
-        assert len(observer.memory_buffer) > 0
+        assert len(observer.observation_log) > 0
 
         # Clear memory
         observer.clear_memory()
-        assert len(observer.memory_buffer) == 0
+        assert len(observer.observation_log) == 0
 
     def test_get_memory_size(self) -> None:
         """Test getting memory size."""
