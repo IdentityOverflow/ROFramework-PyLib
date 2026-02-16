@@ -48,25 +48,25 @@ src/ro_framework/
 - [x] Create this CLAUDE.md file
 
 ### Phase 1: Prune Dead Code
-- [ ] Delete `src/ro_framework/multimodal/` (5 files, ~2600 lines of scaffolding)
-- [ ] Delete 4 multimodal test files
-- [ ] Delete `examples/03_multimodal_observer.py`
-- [ ] Delete 11 outdated markdown files (STATUS, PHASE*, IMPLEMENTATION_SUMMARY, etc.)
-- [ ] Update `pyproject.toml` (remove pandas, torchvision, torchaudio)
-- [ ] Verify remaining tests pass
+- [x] Delete `src/ro_framework/multimodal/` (5 files, ~2600 lines of scaffolding)
+- [x] Delete 4 multimodal test files
+- [x] Delete `examples/03_multimodal_observer.py`
+- [x] Delete 11 outdated markdown files (STATUS, PHASE*, IMPLEMENTATION_SUMMARY, etc.)
+- [x] Update `pyproject.toml` (remove pandas, torchvision, torchaudio)
+- [x] Verify remaining tests pass
 
 ### Phase 2: Knowledge Module + Observer Rewrite
-- [ ] Create `knowledge/__init__.py` and `knowledge/assessment.py` (KnowledgeAssessment, compute_knowledge)
-- [ ] Add ObservationPair and ObservationLog to observer module (replaces memory_buffer entirely)
-- [ ] Rewrite `observer.py`: observe() stores pairs, memory methods use ObservationLog
-- [ ] Implement `assess_knowledge()` and `know()` (was stub returning False)
-- [ ] Fix `recursive_depth()` (structural chain, not dimension heuristic)
-- [ ] Fix `estimate_uncertainty()` (quadrature addition, not additive)
-- [ ] Fix `__repr__()` (remove is_conscious() call)
-- [ ] Write `tests/unit/test_knowledge.py`
-- [ ] Rewrite `tests/unit/test_observer.py` (memory_buffer → observation_log)
-- [ ] Rewrite `tests/unit/test_memory_integration.py`
-- [ ] All tests pass
+- [x] Create `knowledge/__init__.py` and `knowledge/assessment.py` (KnowledgeAssessment, compute_knowledge)
+- [x] Add ObservationPair and ObservationLog to observer module (replaces memory_buffer entirely)
+- [x] Rewrite `observer.py`: observe() stores pairs, memory methods use ObservationLog
+- [x] Implement `assess_knowledge()` and `know()` (was stub returning False)
+- [x] Fix `recursive_depth()` (structural chain, not dimension heuristic)
+- [x] Fix `estimate_uncertainty()` (quadrature addition, not additive)
+- [x] Fix `__repr__()` (remove is_conscious() call)
+- [x] Write `tests/unit/test_knowledge.py`
+- [x] Rewrite `tests/unit/test_observer.py` (memory_buffer → observation_log)
+- [x] Rewrite `tests/unit/test_memory_integration.py`
+- [x] All tests pass (173/173)
 
 ### Phase 3: Fix Consciousness Evaluation
 - [ ] `_evaluate_calibration()` — real ECE, not hardcoded 0.2
@@ -94,4 +94,5 @@ src/ro_framework/
 - [ ] All tests + examples pass
 
 ## Current Status
-**Active Phase**: 1 — Pruning dead code
+**Active Phase**: 3 — Fix Consciousness Evaluation
+**Phases 1–2**: Complete (173/173 tests passing)

@@ -140,41 +140,38 @@ class TestConsciousnessIntegration:
         depth = observer.recursive_depth()
         assert depth >= 1
 
-    def test_recursive_depth_meta_representation(self):
-        """Test recursive_depth() with capacity for meta-representation."""
-        # Create observer with internal dimension >= 2 * external dimension
-        external_dofs = [PolarDoF(name=f"ext{i}", description="") for i in range(2)]
-        internal_dofs = [PolarDoF(name=f"int{i}", description="") for i in range(5)]
+    def test_recursive_depth_nested_self_model(self):
+        """Test recursive_depth() with nested self-model chain (depth 2)."""
+        dof = PolarDoF(name="state", description="")
 
-        # Need a mapping that handles different dimensions
-        # Use a custom mapping
-        class CustomMapping:
-            def __init__(self, input_dofs, output_dofs):
-                self.input_dofs = input_dofs
-                self.output_dofs = output_dofs
+        world_model = IdentityMapping(
+            input_dofs=[dof],
+            output_dofs=[dof]
+        )
 
-            def map(self, input_state):
-                # Simple mapping: replicate and pad
-                output_values = {}
-                input_vals = list(input_state.dof_values.values())
-                for i, dof in enumerate(self.output_dofs):
-                    output_values[dof] = input_vals[i % len(input_vals)]
-                return State(values=output_values)
+        # Inner self-model (no further nesting → contributes depth 1)
+        inner_self_model = IdentityMapping(
+            input_dofs=[dof],
+            output_dofs=[dof]
+        )
 
-        world_model = CustomMapping(external_dofs, internal_dofs)
-
-        # Self-model (internal to internal)
-        self_model = CustomMapping(internal_dofs, internal_dofs)
+        # Outer self-model that itself has a self_model → depth 2
+        outer_self_model = IdentityMapping(
+            input_dofs=[dof],
+            output_dofs=[dof]
+        )
+        outer_self_model.self_model = inner_self_model
 
         observer = Observer(
             name="meta_conscious",
-            internal_dofs=internal_dofs,
-            external_dofs=external_dofs,
+            internal_dofs=[dof],
+            external_dofs=[dof],
             world_model=world_model,
-            self_model=self_model
+            self_model=outer_self_model
         )
 
-        # Should achieve depth 2 (5 internal >= 2 * 2 external)
+        # Structural chain: observer.self_model → outer (depth 1),
+        # outer.self_model → inner (depth 2)
         depth = observer.recursive_depth()
         assert depth == 2
 
