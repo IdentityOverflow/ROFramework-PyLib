@@ -69,13 +69,13 @@ src/ro_framework/
 - [x] All tests pass (173/173)
 
 ### Phase 3: Fix Consciousness Evaluation
-- [ ] `_evaluate_calibration()` — real ECE, not hardcoded 0.2
-- [ ] `_evaluate_metacognition()` — behavioral test, not hasattr checks
-- [ ] `_evaluate_limitation_awareness()` — easy/hard input split
-- [ ] `_evaluate_architectural_similarity()` — structural comparison
-- [ ] Rewrite `tests/unit/test_consciousness.py`
-- [ ] Rewrite `tests/unit/test_consciousness_integration.py`
-- [ ] All tests pass
+- [x] `_evaluate_calibration()` — real ECE via binned uncertainty vs error comparison
+- [x] `_evaluate_metacognition()` — behavioral: self-observation accuracy + depth + stability
+- [x] `_evaluate_limitation_awareness()` — easy/hard input split, uncertainty ratio
+- [x] `_evaluate_architectural_similarity()` — type match + dim ratio + shared attrs
+- [x] Rewrite `tests/unit/test_consciousness.py` (36 tests, behavioral verification)
+- [x] Rewrite `tests/unit/test_consciousness_integration.py` (13 tests, already updated)
+- [x] All tests pass (190/190)
 
 ### Phase 4: Integration Improvements
 - [ ] Fix `TorchObserver.compute_saliency()` (real gradients, not zeros)
@@ -94,5 +94,5 @@ src/ro_framework/
 - [ ] All tests + examples pass
 
 ## Current Status
-**Active Phase**: 3 — Fix Consciousness Evaluation
-**Phases 1–2**: Complete (173/173 tests passing)
+**Active Phase**: 4 — Integration Improvements
+**Phases 1–3**: Complete (190/190 tests passing)

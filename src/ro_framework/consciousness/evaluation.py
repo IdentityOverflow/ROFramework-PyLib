@@ -68,6 +68,35 @@ class ConsciousnessMetrics:
         }
 
 
+def _binned_ece(uncertainties: np.ndarray, errors: np.ndarray) -> float:
+    """Compute binned ECE, normalized to [0, 1].
+
+    Bins by stated uncertainty using equal-frequency quantiles,
+    then computes weighted |avg_uncertainty − avg_error| per bin.
+    """
+    n_bins = min(5, len(uncertainties) // 2)
+    if n_bins < 1:
+        return 0.5
+
+    bin_edges = np.quantile(uncertainties, np.linspace(0, 1, n_bins + 1))
+    ece = 0.0
+    total = 0
+    for i in range(n_bins):
+        lo, hi = bin_edges[i], bin_edges[i + 1]
+        mask = (uncertainties >= lo) & (uncertainties <= hi if i == n_bins - 1 else uncertainties < hi)
+        count = int(mask.sum())
+        if count == 0:
+            continue
+        ece += count * abs(float(uncertainties[mask].mean() - errors[mask].mean()))
+        total += count
+
+    if total == 0:
+        return 0.5
+
+    ece /= total
+    return float(np.clip(ece / (ece + 1.0), 0.0, 1.0))
+
+
 class ConsciousnessEvaluator:
     """
     Evaluate structural features of consciousness in observers.
@@ -192,9 +221,14 @@ class ConsciousnessEvaluator:
 
     def _evaluate_architectural_similarity(self) -> float:
         """
-        Evaluate similarity between world model and self-model architectures.
+        Evaluate structural similarity between world model and self-model.
 
-        For consciousness, both should have similar structure.
+        The framework requires M_self to have the "same architectural type"
+        as M_world.  We measure this along three axes and average:
+
+        1. Type match — same Python class is highest; same base class partial
+        2. DoF-dimensionality ratio — closer to 1.0 is better
+        3. Shared structural attributes (input_dofs, output_dofs, resolution, model)
 
         Returns:
             Similarity score [0, 1]
@@ -202,104 +236,257 @@ class ConsciousnessEvaluator:
         if self.observer.self_model is None:
             return 0.0
 
-        # Check if both are same type
-        world_type = type(self.observer.world_model).__name__
-        self_type = type(self.observer.self_model).__name__
+        world = self.observer.world_model
+        self_m = self.observer.self_model
 
-        if world_type == self_type:
-            return 1.0
+        # --- axis 1: type match ---
+        if type(world) is type(self_m):
+            type_score = 1.0
+        elif type(world).__bases__ == type(self_m).__bases__:
+            type_score = 0.6
+        else:
+            type_score = 0.2
 
-        # Partial credit for similar types
-        if "Neural" in world_type and "Neural" in self_type:
-            return 0.7
+        # --- axis 2: dimensionality ratio ---
+        world_out = len(getattr(world, "output_dofs", []) or [])
+        self_out = len(getattr(self_m, "output_dofs", []) or [])
+        if world_out > 0 and self_out > 0:
+            ratio = min(world_out, self_out) / max(world_out, self_out)
+            dim_score = ratio
+        else:
+            # If neither exposes output_dofs, give neutral credit
+            dim_score = 0.5
 
-        return 0.3
+        # --- axis 3: shared structural attributes ---
+        structural_attrs = ("input_dofs", "output_dofs", "resolution", "model")
+        world_attrs = {a for a in structural_attrs if hasattr(world, a)}
+        self_attrs = {a for a in structural_attrs if hasattr(self_m, a)}
+        if world_attrs or self_attrs:
+            attr_score = len(world_attrs & self_attrs) / len(world_attrs | self_attrs)
+        else:
+            attr_score = 0.5
+
+        return float(np.clip(
+            0.5 * type_score + 0.25 * dim_score + 0.25 * attr_score,
+            0.0, 1.0,
+        ))
 
     def _evaluate_calibration(self, test_states: List[State] = None) -> float:
         """
-        Evaluate calibration: does confidence match accuracy?
+        Compute Expected Calibration Error (ECE).
 
-        Good calibration means when the model says 90% confident,
-        it's correct 90% of the time.
-
-        Args:
-            test_states: Test states
+        Compares stated uncertainty (estimate_uncertainty) against actual
+        self-model prediction error across internal DoFs, then bins by
+        stated uncertainty to compute ECE.
 
         Returns:
             Calibration error [0, 1] (lower is better)
         """
-        # Simplified implementation - full version would:
-        # 1. Get uncertainty estimates from model
-        # 2. Measure actual accuracy
-        # 3. Compute calibration error (e.g., ECE)
+        obs = self.observer
+        if obs.self_model is None:
+            return 1.0
 
-        # Placeholder: Check if observer can estimate uncertainty
-        if hasattr(self.observer, "estimate_uncertainty"):
-            return 0.2  # Assume reasonable calibration if method exists
+        pairs = self._collect_calibration_pairs(test_states)
+        if len(pairs) < 3:
+            return 0.5
 
-        return 0.5  # Unknown
+        uncertainties = np.array([p[0] for p in pairs])
+        errors = np.array([p[1] for p in pairs])
+        return _binned_ece(uncertainties, errors)
+
+    def _collect_calibration_pairs(
+        self, test_states: List[State] = None,
+    ) -> List[tuple]:
+        """Collect (stated_uncertainty, actual_error) pairs."""
+        obs = self.observer
+        if test_states and len(test_states) >= 3:
+            internal_states = [obs.observe(ext) for ext in test_states]
+        else:
+            internal_states = list(obs.observation_log.get_internal_states())
+
+        pairs: List[tuple] = []
+        for internal in internal_states:
+            prev = obs.internal_state
+            obs.internal_state = internal
+            self_repr = obs.self_observe()
+            obs.internal_state = prev
+            if self_repr is None:
+                continue
+            for dof in obs.internal_dofs:
+                unc = obs.estimate_uncertainty(dof)
+                true_val = internal.get_value(dof)
+                pred_val = self_repr.get_value(dof)
+                if true_val is not None and pred_val is not None:
+                    pairs.append((unc, abs(float(true_val) - float(pred_val))))
+        return pairs
 
     def _evaluate_metacognition(self) -> float:
         """
-        Evaluate meta-cognitive capability.
+        Evaluate meta-cognitive capability via behavioral test.
 
-        Can the observer reason about its own reasoning?
-        Can it identify sources of errors?
+        Framework §5.2: meta-cognition = depth ≥ 2, i.e. the self-model
+        can model *itself*.  We measure three behavioral axes:
+
+        1. Self-observation accuracy — does self_observe() actually track
+           internal state?  (0.4 weight)
+        2. Recursive depth contribution — depth ≥ 2 shows meta-level (0.3)
+        3. Self-model prediction stability — repeated self-observations on
+           the same state should be consistent (0.3)
 
         Returns:
             Meta-cognitive score [0, 1]
         """
-        # Check for meta-cognitive capabilities
-        score = 0.0
+        obs = self.observer
+        if obs.self_model is None:
+            return 0.0
 
-        # Has uncertainty estimation?
-        if hasattr(self.observer, "estimate_uncertainty"):
-            score += 0.3
+        # --- axis 1: self-observation accuracy (behavioral) ---
+        accuracy = self._self_observation_accuracy()
 
-        # Has memory (needed for learning from mistakes)?
-        if self.observer.has_memory():
-            score += 0.3
+        # --- axis 2: recursive depth ---
+        depth = obs.recursive_depth()
+        depth_score = min(depth / 2.0, 1.0)  # full credit at depth 2+
 
-        # Has self-model (can reflect on internal states)?
-        if self.observer.self_model is not None:
-            score += 0.4
+        # --- axis 3: prediction stability ---
+        stability = self._self_observation_stability()
 
-        return float(score)
+        return float(np.clip(
+            0.4 * accuracy + 0.3 * depth_score + 0.3 * stability,
+            0.0, 1.0,
+        ))
+
+    def _self_observation_accuracy(self) -> float:
+        """How well does self_observe() track actual internal state?"""
+        obs = self.observer
+        internal_states = obs.observation_log.get_internal_states()
+        if not internal_states:
+            if obs.internal_state is None:
+                return 0.0
+            internal_states = [obs.internal_state]
+
+        accuracies = []
+        for internal in internal_states[-20:]:  # check last 20
+            prev = obs.internal_state
+            obs.internal_state = internal
+            self_repr = obs.self_observe()
+            obs.internal_state = prev
+            if self_repr is None:
+                continue
+            dist = internal.distance_to(self_repr)
+            accuracies.append(1.0 / (1.0 + dist))
+
+        return float(np.mean(accuracies)) if accuracies else 0.0
+
+    def _self_observation_stability(self) -> float:
+        """Are repeated self-observations on the same state consistent?"""
+        obs = self.observer
+        if obs.internal_state is None:
+            return 0.5  # neutral — no data
+
+        results = []
+        for _ in range(5):
+            self_repr = obs.self_observe()
+            if self_repr is not None:
+                results.append(self_repr)
+
+        if len(results) < 2:
+            return 0.0
+
+        # Measure pairwise distances — lower spread = higher stability
+        distances = []
+        for i in range(len(results)):
+            for j in range(i + 1, len(results)):
+                distances.append(results[i].distance_to(results[j]))
+
+        if not distances:
+            return 1.0
+        mean_dist = float(np.mean(distances))
+        return 1.0 / (1.0 + mean_dist)
 
     def _evaluate_limitation_awareness(self, test_states: List[State] = None) -> float:
         """
-        Evaluate awareness of own limitations.
+        Evaluate awareness of limitations via easy/hard input split.
 
-        Does the observer know what it doesn't know?
-        Does uncertainty increase on ambiguous inputs?
+        Framework §8.3: "knows when to ask for help; degrades gracefully
+        under uncertainty."
 
-        Args:
-            test_states: Test states (should include ambiguous cases)
+        Approach: split inputs into "easy" (near distribution center) and
+        "hard" (at distribution edges / out-of-distribution).  An aware
+        observer should report *higher* uncertainty on hard inputs.
+
+        If no test_states, uses the observation log and synthesizes hard
+        states by pushing values to DoF extremes.
 
         Returns:
             Awareness score [0, 1]
         """
-        # Simplified: Check if observer can report uncertainty
-        if not hasattr(self.observer, "estimate_uncertainty"):
+        obs = self.observer
+        if obs.self_model is None:
             return 0.0
 
-        # If we have test states, check if uncertainty varies appropriately
-        if test_states and len(test_states) > 1:
-            uncertainties = []
-            for state in test_states:
-                # Get uncertainty for first internal DoF (simplified)
-                if self.observer.internal_dofs:
-                    unc = self.observer.estimate_uncertainty(self.observer.internal_dofs[0])
-                    uncertainties.append(unc)
+        easy_states, hard_states = self._split_easy_hard(test_states)
+        if not easy_states or not hard_states:
+            return 0.5  # not enough data to judge
 
-            if uncertainties:
-                # Good awareness means uncertainty varies (not always high or low)
-                var = np.var(uncertainties)
-                score = min(var / 0.01, 1.0)  # Normalize
-                return float(score)
+        easy_unc = self._mean_uncertainty(easy_states)
+        hard_unc = self._mean_uncertainty(hard_states)
 
-        # Default: Has mechanism for uncertainty
-        return 0.5
+        if easy_unc < 1e-12 and hard_unc < 1e-12:
+            return 0.0  # flat uncertainty — no awareness
+
+        # Good awareness: hard_unc > easy_unc
+        if hard_unc <= easy_unc:
+            return 0.0
+
+        # Score: how much *more* uncertain on hard inputs
+        # ratio = hard / easy; cap contribution at 3×
+        ratio = hard_unc / max(easy_unc, 1e-12)
+        return float(np.clip((ratio - 1.0) / 2.0, 0.0, 1.0))
+
+    def _split_easy_hard(
+        self, test_states: List[State] = None,
+    ) -> tuple:
+        """Split inputs into easy (central) and hard (extreme) sets."""
+        obs = self.observer
+
+        if test_states and len(test_states) >= 4:
+            # Use provided states: sort by distance from mean, split in half
+            vectors = []
+            for s in test_states:
+                v = s.to_vector(obs.external_dofs)
+                vectors.append(np.array(v))
+            mean_v = np.mean(vectors, axis=0)
+            dists = [float(np.linalg.norm(v - mean_v)) for v in vectors]
+            median_dist = float(np.median(dists))
+            easy = [s for s, d in zip(test_states, dists) if d <= median_dist]
+            hard = [s for s, d in zip(test_states, dists) if d > median_dist]
+            return easy, hard
+
+        # Synthesize from observation log
+        log_pairs = list(obs.observation_log)
+        if len(log_pairs) < 4:
+            return [], []
+
+        ext_states = [p.external_state for p in log_pairs]
+        vectors = [np.array(s.to_vector(obs.external_dofs)) for s in ext_states]
+        mean_v = np.mean(vectors, axis=0)
+        dists = [float(np.linalg.norm(v - mean_v)) for v in vectors]
+        median_dist = float(np.median(dists))
+        easy = [s for s, d in zip(ext_states, dists) if d <= median_dist]
+        hard = [s for s, d in zip(ext_states, dists) if d > median_dist]
+        return easy, hard
+
+    def _mean_uncertainty(self, states: List[State]) -> float:
+        """Average stated uncertainty across states and internal DoFs."""
+        obs = self.observer
+        total = 0.0
+        count = 0
+        for ext in states:
+            obs.observe(ext)
+            for dof in obs.internal_dofs:
+                total += obs.estimate_uncertainty(dof)
+                count += 1
+        return total / count if count > 0 else 0.0
 
 
 def compare_observers(observers: List[Observer], test_states: List[State] = None) -> Dict[str, ConsciousnessMetrics]:

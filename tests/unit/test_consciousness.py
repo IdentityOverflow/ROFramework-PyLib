@@ -1,4 +1,8 @@
-"""Unit tests for consciousness evaluation."""
+"""Unit tests for consciousness evaluation.
+
+Tests ConsciousnessMetrics, ConsciousnessEvaluator (all four evaluation
+methods with behavioral verification), and comparison/ranking utilities.
+"""
 
 import numpy as np
 import pytest
@@ -6,415 +10,451 @@ import pytest
 from ro_framework.core.dof import PolarDoF, PolarDoFType
 from ro_framework.core.state import State
 from ro_framework.observer.observer import Observer
+from ro_framework.observer.mapping import IdentityMapping, NeuralMapping
 from ro_framework.consciousness.evaluation import (
     ConsciousnessEvaluator,
     ConsciousnessMetrics,
+    _binned_ece,
     compare_observers,
     rank_by_consciousness,
 )
 
 
-@pytest.fixture
-def simple_dofs():
-    """Create simple DoFs for testing."""
-    external_dofs = [
-        PolarDoF(
-            name=f"ext_{i}",
-            pole_negative=-1.0,
-            pole_positive=1.0,
-            polar_type=PolarDoFType.CONTINUOUS_BOUNDED,
-        )
-        for i in range(3)
-    ]
-    internal_dofs = [
-        PolarDoF(
-            name=f"int_{i}",
-            pole_negative=-5.0,
-            pole_positive=5.0,
-            polar_type=PolarDoFType.CONTINUOUS_BOUNDED,
-        )
-        for i in range(5)
-    ]
-    return external_dofs, internal_dofs
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-
-@pytest.fixture
-def simple_mapping(simple_dofs):
-    """Create simple mapping for testing."""
-    external_dofs, internal_dofs = simple_dofs
-
-    class SimpleMapping:
-        def __call__(self, state: State) -> State:
-            # Simple linear transformation
-            values = {}
-            for i, int_dof in enumerate(internal_dofs):
-                values[int_dof] = np.random.uniform(-5, 5)
-            return State(values=values)
-
-    return SimpleMapping()
-
-
-@pytest.fixture
-def unconscious_observer(simple_dofs, simple_mapping):
-    """Create observer without self-model."""
-    external_dofs, internal_dofs = simple_dofs
-
-    return Observer(
-        name="unconscious",
-        internal_dofs=internal_dofs,
-        external_dofs=external_dofs,
-        world_model=simple_mapping,
-        self_model=None  # No self-model = not conscious
+def _make_dof(name="d", lo=-1.0, hi=1.0):
+    return PolarDoF(
+        name=name,
+        pole_negative=lo,
+        pole_positive=hi,
+        polar_type=PolarDoFType.CONTINUOUS_BOUNDED,
     )
 
 
-@pytest.fixture
-def conscious_observer(simple_dofs, simple_mapping):
-    """Create observer with self-model."""
-    external_dofs, internal_dofs = simple_dofs
+def _make_observer(*, self_model_fn=None, n_ext=1, n_int=1, name="obs"):
+    """Build an Observer with optional self_model callable."""
+    ext = [_make_dof(f"ext_{i}") for i in range(n_ext)]
+    intl = [_make_dof(f"int_{i}", -5.0, 5.0) for i in range(n_int)]
 
-    class SelfMapping:
+    class WorldModel:
         def __call__(self, state: State) -> State:
-            # Identity-like self-mapping
-            return state
+            vals = {}
+            for i, d in enumerate(intl):
+                v = state.get_value(ext[i % len(ext)])
+                vals[d] = float(v) if v is not None else 0.0
+            return State(values=vals)
+
+    self_model = None
+    if self_model_fn is not None:
+        self_model = self_model_fn(intl)
 
     return Observer(
-        name="conscious",
-        internal_dofs=internal_dofs,
-        external_dofs=external_dofs,
-        world_model=simple_mapping,
-        self_model=SelfMapping()  # Has self-model = conscious
+        name=name,
+        internal_dofs=intl,
+        external_dofs=ext,
+        world_model=WorldModel(),
+        self_model=self_model,
     )
 
+
+class _IdentitySelf:
+    """Self-model that returns state unchanged (perfect self-knowledge)."""
+    def __init__(self, dofs):
+        self._dofs = dofs
+    def __call__(self, state: State) -> State:
+        return state
+
+
+class _NoisySelf:
+    """Self-model that adds noise (imperfect self-knowledge)."""
+    def __init__(self, dofs, noise=2.0):
+        self._dofs = dofs
+        self._noise = noise
+        self._rng = np.random.default_rng(0)
+    def __call__(self, state: State) -> State:
+        vals = {}
+        for d in self._dofs:
+            v = state.get_value(d)
+            vals[d] = (float(v) if v is not None else 0.0) + self._rng.normal(0, self._noise)
+        return State(values=vals)
+
+
+class _ConstantSelf:
+    """Self-model that always returns zeros (bad self-knowledge)."""
+    def __init__(self, dofs):
+        self._dofs = dofs
+    def __call__(self, state: State) -> State:
+        return State(values={d: 0.0 for d in self._dofs})
+
+
+def _observe_many(obs, n=20, rng=None):
+    """Feed n random external states through the observer."""
+    if rng is None:
+        rng = np.random.default_rng(42)
+    for _ in range(n):
+        vals = {d: float(rng.uniform(-1, 1)) for d in obs.external_dofs}
+        obs.observe(State(values=vals))
+
+
+# ---------------------------------------------------------------------------
+# ConsciousnessMetrics
+# ---------------------------------------------------------------------------
 
 class TestConsciousnessMetrics:
-    """Test ConsciousnessMetrics dataclass."""
 
     def test_metrics_creation(self):
-        """Test creating consciousness metrics."""
-        metrics = ConsciousnessMetrics(
-            has_self_model=True,
-            recursive_depth=1,
-            self_accuracy=0.9,
-            architectural_similarity=1.0,
-            calibration_error=0.1,
-            meta_cognitive_capability=0.8,
-            limitation_awareness=0.7,
+        m = ConsciousnessMetrics(
+            has_self_model=True, recursive_depth=1, self_accuracy=0.9,
+            architectural_similarity=1.0, calibration_error=0.1,
+            meta_cognitive_capability=0.8, limitation_awareness=0.7,
         )
-
-        assert metrics.has_self_model
-        assert metrics.recursive_depth == 1
-        assert metrics.self_accuracy == 0.9
+        assert m.has_self_model
+        assert m.recursive_depth == 1
 
     def test_consciousness_score_no_self_model(self):
-        """Test score is 0 without self-model."""
-        metrics = ConsciousnessMetrics(
-            has_self_model=False,
-            recursive_depth=0,
-            self_accuracy=0.0,
-            architectural_similarity=0.0,
-            calibration_error=1.0,
-            meta_cognitive_capability=0.0,
-            limitation_awareness=0.0,
+        m = ConsciousnessMetrics(
+            has_self_model=False, recursive_depth=0, self_accuracy=0.0,
+            architectural_similarity=0.0, calibration_error=1.0,
+            meta_cognitive_capability=0.0, limitation_awareness=0.0,
         )
-
-        assert metrics.consciousness_score() == 0.0
+        assert m.consciousness_score() == 0.0
 
     def test_consciousness_score_perfect(self):
-        """Test score with perfect metrics."""
-        metrics = ConsciousnessMetrics(
-            has_self_model=True,
-            recursive_depth=3,
-            self_accuracy=1.0,
-            architectural_similarity=1.0,
-            calibration_error=0.0,
-            meta_cognitive_capability=1.0,
-            limitation_awareness=1.0,
+        m = ConsciousnessMetrics(
+            has_self_model=True, recursive_depth=3, self_accuracy=1.0,
+            architectural_similarity=1.0, calibration_error=0.0,
+            meta_cognitive_capability=1.0, limitation_awareness=1.0,
         )
-
-        score = metrics.consciousness_score()
-        assert 0.0 <= score <= 1.0
-        assert score > 0.8  # Should be high with perfect metrics
+        assert m.consciousness_score() > 0.8
 
     def test_consciousness_score_weighted(self):
-        """Test that score is weighted combination."""
-        metrics = ConsciousnessMetrics(
-            has_self_model=True,
-            recursive_depth=1,
-            self_accuracy=0.5,
-            architectural_similarity=0.5,
-            calibration_error=0.5,
-            meta_cognitive_capability=0.5,
-            limitation_awareness=0.5,
+        m = ConsciousnessMetrics(
+            has_self_model=True, recursive_depth=1, self_accuracy=0.5,
+            architectural_similarity=0.5, calibration_error=0.5,
+            meta_cognitive_capability=0.5, limitation_awareness=0.5,
         )
-
-        score = metrics.consciousness_score()
-        assert 0.0 < score < 1.0
+        assert 0.0 < m.consciousness_score() < 1.0
 
     def test_to_dict(self):
-        """Test conversion to dictionary."""
-        metrics = ConsciousnessMetrics(
-            has_self_model=True,
-            recursive_depth=1,
-            self_accuracy=0.8,
-            architectural_similarity=0.9,
-            calibration_error=0.2,
-            meta_cognitive_capability=0.7,
-            limitation_awareness=0.6,
+        m = ConsciousnessMetrics(
+            has_self_model=True, recursive_depth=1, self_accuracy=0.8,
+            architectural_similarity=0.9, calibration_error=0.2,
+            meta_cognitive_capability=0.7, limitation_awareness=0.6,
         )
-
-        d = metrics.to_dict()
-
+        d = m.to_dict()
         assert isinstance(d, dict)
-        assert "has_self_model" in d
-        assert "overall_score" in d
-        assert d["has_self_model"] == True
+        assert d["has_self_model"] is True
         assert isinstance(d["overall_score"], float)
+        assert "recursive_depth" in d
 
+
+# ---------------------------------------------------------------------------
+# _binned_ece helper
+# ---------------------------------------------------------------------------
+
+class TestBinnedECE:
+
+    def test_perfect_calibration(self):
+        """Uncertainty == error everywhere → ECE ≈ 0."""
+        vals = np.array([0.1, 0.2, 0.3, 0.4, 0.5, 0.6])
+        ece = _binned_ece(vals, vals)
+        assert ece < 0.05
+
+    def test_bad_calibration(self):
+        """Uncertainty far from error → high ECE."""
+        unc = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
+        err = np.array([5.0, 5.0, 5.0, 5.0, 5.0, 5.0])
+        ece = _binned_ece(unc, err)
+        assert ece > 0.3
+
+    def test_too_few_samples(self):
+        ece = _binned_ece(np.array([0.1]), np.array([0.1]))
+        assert ece == 0.5  # fallback
+
+
+# ---------------------------------------------------------------------------
+# ConsciousnessEvaluator
+# ---------------------------------------------------------------------------
 
 class TestConsciousnessEvaluator:
-    """Test ConsciousnessEvaluator class."""
 
-    def test_creation(self, unconscious_observer):
-        """Test creating evaluator."""
-        evaluator = ConsciousnessEvaluator(unconscious_observer)
-        assert evaluator.observer == unconscious_observer
+    def test_creation(self):
+        obs = _make_observer()
+        evaluator = ConsciousnessEvaluator(obs)
+        assert evaluator.observer is obs
 
-    def test_evaluate_unconscious(self, unconscious_observer):
-        """Test evaluating unconscious observer."""
-        evaluator = ConsciousnessEvaluator(unconscious_observer)
-        metrics = evaluator.evaluate()
-
+    def test_evaluate_unconscious(self):
+        obs = _make_observer()
+        metrics = ConsciousnessEvaluator(obs).evaluate()
         assert not metrics.has_self_model
         assert metrics.recursive_depth == 0
         assert metrics.consciousness_score() == 0.0
 
-    def test_evaluate_conscious(self, conscious_observer):
-        """Test evaluating conscious observer."""
-        evaluator = ConsciousnessEvaluator(conscious_observer)
-        metrics = evaluator.evaluate()
-
+    def test_evaluate_conscious(self):
+        obs = _make_observer(self_model_fn=_IdentitySelf)
+        _observe_many(obs)
+        metrics = ConsciousnessEvaluator(obs).evaluate()
         assert metrics.has_self_model
         assert metrics.recursive_depth >= 1
         assert metrics.consciousness_score() > 0.0
 
-    def test_evaluate_with_test_states(self, conscious_observer, simple_dofs):
-        """Test evaluation with test states."""
-        external_dofs, _ = simple_dofs
-
-        # Create test states
-        test_states = [
-            State(values={dof: np.random.uniform(-1, 1) for dof in external_dofs})
-            for _ in range(10)
-        ]
-
-        evaluator = ConsciousnessEvaluator(conscious_observer)
-        metrics = evaluator.evaluate(test_states)
-
+    def test_evaluate_with_test_states(self):
+        obs = _make_observer(self_model_fn=_IdentitySelf)
+        ext = obs.external_dofs
+        test_states = [State(values={d: float(i * 0.1) for d in ext}) for i in range(10)]
+        metrics = ConsciousnessEvaluator(obs).evaluate(test_states)
         assert isinstance(metrics, ConsciousnessMetrics)
-
-    def test_self_accuracy_evaluation(self, conscious_observer, simple_dofs):
-        """Test self-accuracy metric."""
-        evaluator = ConsciousnessEvaluator(conscious_observer)
-
-        # First observe something
-        external_dofs, _ = simple_dofs
-        external_state = State(values={dof: 0.5 for dof in external_dofs})
-        conscious_observer.observe(external_state)
-
-        accuracy = evaluator._evaluate_self_accuracy()
-
-        assert isinstance(accuracy, float)
-        assert 0.0 <= accuracy <= 1.0
-
-    def test_architectural_similarity_evaluation(self, conscious_observer):
-        """Test architectural similarity metric."""
-        evaluator = ConsciousnessEvaluator(conscious_observer)
-        similarity = evaluator._evaluate_architectural_similarity()
-
-        assert isinstance(similarity, float)
-        assert 0.0 <= similarity <= 1.0
-
-    def test_metacognition_evaluation(self, conscious_observer):
-        """Test meta-cognition evaluation."""
-        evaluator = ConsciousnessEvaluator(conscious_observer)
-        meta_score = evaluator._evaluate_metacognition()
-
-        assert isinstance(meta_score, float)
-        assert 0.0 <= meta_score <= 1.0
-
-    def test_limitation_awareness_evaluation(self, conscious_observer):
-        """Test limitation awareness evaluation."""
-        evaluator = ConsciousnessEvaluator(conscious_observer)
-        awareness = evaluator._evaluate_limitation_awareness()
-
-        assert isinstance(awareness, float)
-        assert 0.0 <= awareness <= 1.0
+        assert 0.0 <= metrics.self_accuracy <= 1.0
 
 
-class TestComparisonFunctions:
-    """Test observer comparison functions."""
+class TestSelfAccuracy:
 
-    def test_compare_observers(self, unconscious_observer, conscious_observer):
-        """Test comparing multiple observers."""
-        observers = [unconscious_observer, conscious_observer]
+    def test_identity_self_model_high_accuracy(self):
+        obs = _make_observer(self_model_fn=_IdentitySelf)
+        _observe_many(obs)
+        acc = ConsciousnessEvaluator(obs)._evaluate_self_accuracy()
+        assert acc > 0.9  # identity → near-perfect
 
-        comparison = compare_observers(observers)
+    def test_constant_self_model_lower_accuracy(self):
+        obs = _make_observer(self_model_fn=_ConstantSelf)
+        _observe_many(obs)
+        acc_bad = ConsciousnessEvaluator(obs)._evaluate_self_accuracy()
 
-        assert len(comparison) == 2
-        assert "unconscious" in comparison
-        assert "conscious" in comparison
+        obs2 = _make_observer(self_model_fn=_IdentitySelf)
+        _observe_many(obs2)
+        acc_good = ConsciousnessEvaluator(obs2)._evaluate_self_accuracy()
 
-        # Conscious should score higher
-        unconscious_score = comparison["unconscious"].consciousness_score()
-        conscious_score = comparison["conscious"].consciousness_score()
-        assert conscious_score > unconscious_score
+        assert acc_good > acc_bad
 
-    def test_rank_by_consciousness(self, simple_dofs, simple_mapping):
-        """Test ranking observers by consciousness."""
-        external_dofs, internal_dofs = simple_dofs
+    def test_no_internal_state_returns_half(self):
+        obs = _make_observer(self_model_fn=_IdentitySelf)
+        # No observations yet → internal_state is None
+        acc = ConsciousnessEvaluator(obs)._evaluate_self_accuracy()
+        assert acc == 0.5
 
-        # Create observers with different levels of consciousness
-        obs1 = Observer(
-            name="obs1",
-            internal_dofs=internal_dofs,
-            external_dofs=external_dofs,
-            world_model=simple_mapping,
-            self_model=None  # Not conscious
+
+class TestArchitecturalSimilarity:
+
+    def test_same_type_high_similarity(self):
+        dof = _make_dof()
+        world = IdentityMapping(input_dofs=[dof], output_dofs=[dof])
+        self_m = IdentityMapping(input_dofs=[dof], output_dofs=[dof])
+        obs = Observer(
+            name="t", internal_dofs=[dof], external_dofs=[dof],
+            world_model=world, self_model=self_m,
         )
+        sim = ConsciousnessEvaluator(obs)._evaluate_architectural_similarity()
+        assert sim > 0.7  # same type → high
 
-        class SelfMapping:
-            def __call__(self, state: State) -> State:
+    def test_different_type_lower_similarity(self):
+        dof = _make_dof()
+        world = IdentityMapping(input_dofs=[dof], output_dofs=[dof])
+
+        class CustomSelf:
+            def __call__(self, state):
                 return state
 
-        obs2 = Observer(
-            name="obs2",
-            internal_dofs=internal_dofs,
-            external_dofs=external_dofs,
-            world_model=simple_mapping,
-            self_model=SelfMapping()  # Conscious
+        obs = Observer(
+            name="t", internal_dofs=[dof], external_dofs=[dof],
+            world_model=world, self_model=CustomSelf(),
         )
+        sim = ConsciousnessEvaluator(obs)._evaluate_architectural_similarity()
+        assert sim < 0.7  # different type → lower
+
+    def test_neural_mappings_with_same_dims(self):
+        dofs = [_make_dof(f"d{i}") for i in range(3)]
+        world = NeuralMapping(name="w", input_dofs=dofs, output_dofs=dofs, model=None)
+        self_m = NeuralMapping(name="s", input_dofs=dofs, output_dofs=dofs, model=None)
+        obs = Observer(
+            name="t", internal_dofs=dofs, external_dofs=dofs,
+            world_model=world, self_model=self_m,
+        )
+        sim = ConsciousnessEvaluator(obs)._evaluate_architectural_similarity()
+        # same type + same dims + same attrs → very high
+        assert sim > 0.9
+
+    def test_no_self_model(self):
+        obs = _make_observer()
+        sim = ConsciousnessEvaluator(obs)._evaluate_architectural_similarity()
+        assert sim == 0.0
+
+
+class TestCalibration:
+
+    def test_identity_self_model_low_calibration_error(self):
+        """Identity self-model → errors ≈ 0 → ECE should be low."""
+        obs = _make_observer(self_model_fn=_IdentitySelf)
+        _observe_many(obs, n=30)
+        err = ConsciousnessEvaluator(obs)._evaluate_calibration()
+        assert 0.0 <= err <= 1.0
+        # Identity self-model: actual error is tiny, uncertainties are small
+        # So ECE = |small_unc - ~0_err| — should be small
+        assert err < 0.5
+
+    def test_no_self_model_returns_one(self):
+        obs = _make_observer()
+        err = ConsciousnessEvaluator(obs)._evaluate_calibration()
+        assert err == 1.0
+
+    def test_insufficient_data_returns_half(self):
+        obs = _make_observer(self_model_fn=_IdentitySelf)
+        # Only 1 observation — not enough
+        obs.observe(State(values={obs.external_dofs[0]: 0.5}))
+        err = ConsciousnessEvaluator(obs)._evaluate_calibration()
+        assert err == 0.5
+
+    def test_with_test_states(self):
+        obs = _make_observer(self_model_fn=_IdentitySelf)
+        ext = obs.external_dofs
+        test_states = [State(values={d: float(i * 0.1) for d in ext}) for i in range(10)]
+        err = ConsciousnessEvaluator(obs)._evaluate_calibration(test_states)
+        assert 0.0 <= err <= 1.0
+
+
+class TestMetacognition:
+
+    def test_identity_self_model_with_observations(self):
+        """Identity self → high accuracy + stability → decent metacognition."""
+        obs = _make_observer(self_model_fn=_IdentitySelf)
+        _observe_many(obs, n=20)
+        score = ConsciousnessEvaluator(obs)._evaluate_metacognition()
+        assert score > 0.3  # accuracy and stability should be high
+
+    def test_no_self_model(self):
+        obs = _make_observer()
+        score = ConsciousnessEvaluator(obs)._evaluate_metacognition()
+        assert score == 0.0
+
+    def test_depth_2_increases_score(self):
+        """Nested self-model (depth 2) should boost metacognition score."""
+        dof = _make_dof()
+        world = IdentityMapping(input_dofs=[dof], output_dofs=[dof])
+        inner = IdentityMapping(input_dofs=[dof], output_dofs=[dof])
+        outer = IdentityMapping(input_dofs=[dof], output_dofs=[dof])
+        outer.self_model = inner
+
+        obs_d1 = Observer(
+            name="d1", internal_dofs=[dof], external_dofs=[dof],
+            world_model=world,
+            self_model=IdentityMapping(input_dofs=[dof], output_dofs=[dof]),
+        )
+        obs_d2 = Observer(
+            name="d2", internal_dofs=[dof], external_dofs=[dof],
+            world_model=world, self_model=outer,
+        )
+        # Observe the same data
+        for obs in (obs_d1, obs_d2):
+            _observe_many(obs, n=10)
+
+        s1 = ConsciousnessEvaluator(obs_d1)._evaluate_metacognition()
+        s2 = ConsciousnessEvaluator(obs_d2)._evaluate_metacognition()
+        assert s2 > s1  # depth 2 should score higher
+
+    def test_noisy_self_model_lower_score(self):
+        """Noisy self-model → lower accuracy → lower metacognition."""
+        obs_good = _make_observer(self_model_fn=_IdentitySelf)
+        obs_bad = _make_observer(self_model_fn=_NoisySelf)
+        _observe_many(obs_good, n=20)
+        _observe_many(obs_bad, n=20)
+        s_good = ConsciousnessEvaluator(obs_good)._evaluate_metacognition()
+        s_bad = ConsciousnessEvaluator(obs_bad)._evaluate_metacognition()
+        assert s_good > s_bad
+
+
+class TestLimitationAwareness:
+
+    def test_no_self_model(self):
+        obs = _make_observer()
+        score = ConsciousnessEvaluator(obs)._evaluate_limitation_awareness()
+        assert score == 0.0
+
+    def test_insufficient_data_returns_half(self):
+        obs = _make_observer(self_model_fn=_IdentitySelf)
+        # No observations → empty log → can't split easy/hard
+        score = ConsciousnessEvaluator(obs)._evaluate_limitation_awareness()
+        assert score == 0.5
+
+    def test_with_spread_test_states(self):
+        """With a mix of central and extreme states, score should be in [0,1]."""
+        obs = _make_observer(self_model_fn=_IdentitySelf)
+        _observe_many(obs, n=10)
+        ext = obs.external_dofs
+        rng = np.random.default_rng(42)
+        # Mix of central and extreme states
+        test_states = (
+            [State(values={d: float(rng.uniform(-0.1, 0.1)) for d in ext}) for _ in range(5)]
+            + [State(values={d: float(rng.uniform(0.8, 1.0)) for d in ext}) for _ in range(5)]
+        )
+        score = ConsciousnessEvaluator(obs)._evaluate_limitation_awareness(test_states)
+        assert 0.0 <= score <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# Comparison / ranking utilities
+# ---------------------------------------------------------------------------
+
+class TestComparisonFunctions:
+
+    def test_compare_observers(self):
+        obs1 = _make_observer(name="unconscious")
+        obs2 = _make_observer(self_model_fn=_IdentitySelf, name="conscious")
+        _observe_many(obs2, n=10)
+
+        comparison = compare_observers([obs1, obs2])
+        assert len(comparison) == 2
+        assert comparison["conscious"].consciousness_score() > comparison["unconscious"].consciousness_score()
+
+    def test_rank_by_consciousness(self):
+        obs1 = _make_observer(name="obs1")
+        obs2 = _make_observer(self_model_fn=_IdentitySelf, name="obs2")
+        _observe_many(obs2, n=10)
 
         ranked = rank_by_consciousness([obs1, obs2])
-
-        assert len(ranked) == 2
-        # Most conscious should be first
         assert ranked[0][0].name == "obs2"
-        assert ranked[1][0].name == "obs1"
-        # Scores should be in descending order
         assert ranked[0][1] >= ranked[1][1]
 
     def test_rank_empty_list(self):
-        """Test ranking with empty list."""
-        ranked = rank_by_consciousness([])
-        assert ranked == []
+        assert rank_by_consciousness([]) == []
 
-    def test_rank_single_observer(self, conscious_observer):
-        """Test ranking with single observer."""
-        ranked = rank_by_consciousness([conscious_observer])
+    def test_rank_single_observer(self):
+        obs = _make_observer(self_model_fn=_IdentitySelf, name="solo")
+        ranked = rank_by_consciousness([obs])
         assert len(ranked) == 1
-        assert ranked[0][0] == conscious_observer
 
+
+# ---------------------------------------------------------------------------
+# Integration
+# ---------------------------------------------------------------------------
 
 class TestIntegration:
-    """Integration tests combining multiple components."""
 
-    def test_full_evaluation_pipeline(self, simple_dofs):
-        """Test complete evaluation pipeline."""
-        external_dofs, internal_dofs = simple_dofs
-
-        # Create sophisticated mapping
-        class WorldModel:
-            def __call__(self, state: State) -> State:
-                values = {}
-                for i, dof in enumerate(internal_dofs):
-                    # Simple transformation
-                    values[dof] = float(i) * 0.5
-                return State(values=values)
-
-        class SelfModel:
-            def __call__(self, state: State) -> State:
-                # Almost identity
-                values = {}
-                for dof in internal_dofs:
-                    val = state.get_value(dof)
-                    values[dof] = val * 0.95 if val is not None else 0.0
-                return State(values=values)
-
-        observer = Observer(
-            name="test",
-            internal_dofs=internal_dofs,
-            external_dofs=external_dofs,
-            world_model=WorldModel(),
-            self_model=SelfModel()
-        )
-
-        # Create test states
+    def test_full_evaluation_pipeline(self):
+        obs = _make_observer(self_model_fn=_IdentitySelf, n_ext=3, n_int=3)
+        _observe_many(obs, n=30)
+        ext = obs.external_dofs
         test_states = [
-            State(values={dof: np.random.uniform(-1, 1) for dof in external_dofs})
+            State(values={d: float(np.random.uniform(-1, 1)) for d in ext})
             for _ in range(20)
         ]
-
-        # Evaluate
-        evaluator = ConsciousnessEvaluator(observer)
-        metrics = evaluator.evaluate(test_states)
-
-        # Check all metrics are valid
+        metrics = ConsciousnessEvaluator(obs).evaluate(test_states)
         assert metrics.has_self_model
-        assert 0.0 <= metrics.self_accuracy <= 1.0
-        assert 0.0 <= metrics.architectural_similarity <= 1.0
-        assert 0.0 <= metrics.calibration_error <= 1.0
-        assert 0.0 <= metrics.meta_cognitive_capability <= 1.0
-        assert 0.0 <= metrics.limitation_awareness <= 1.0
+        for attr in ("self_accuracy", "architectural_similarity",
+                     "calibration_error", "meta_cognitive_capability",
+                     "limitation_awareness"):
+            val = getattr(metrics, attr)
+            assert 0.0 <= val <= 1.0, f"{attr}={val} out of range"
         assert 0.0 <= metrics.consciousness_score() <= 1.0
 
-    def test_consciousness_improves_with_features(self, simple_dofs, simple_mapping):
-        """Test that consciousness score improves with better features."""
-        external_dofs, internal_dofs = simple_dofs
+    def test_better_self_model_scores_higher(self):
+        obs_bad = _make_observer(self_model_fn=_ConstantSelf, name="bad")
+        obs_good = _make_observer(self_model_fn=_IdentitySelf, name="good")
+        _observe_many(obs_bad, n=20)
+        _observe_many(obs_good, n=20)
 
-        # Observer 1: Basic self-model
-        class BasicSelfModel:
-            def __call__(self, state: State) -> State:
-                values = {dof: 0.0 for dof in internal_dofs}
-                return State(values=values)
+        m_bad = ConsciousnessEvaluator(obs_bad).evaluate()
+        m_good = ConsciousnessEvaluator(obs_good).evaluate()
 
-        obs1 = Observer(
-            name="basic",
-            internal_dofs=internal_dofs,
-            external_dofs=external_dofs,
-            world_model=simple_mapping,
-            self_model=BasicSelfModel()
-        )
-
-        # Observer 2: Better self-model (identity)
-        class BetterSelfModel:
-            def __call__(self, state: State) -> State:
-                return state  # Perfect self-model
-
-        obs2 = Observer(
-            name="better",
-            internal_dofs=internal_dofs,
-            external_dofs=external_dofs,
-            world_model=simple_mapping,
-            self_model=BetterSelfModel()
-        )
-
-        # Observe something first
-        test_state = State(values={dof: 0.5 for dof in external_dofs})
-        obs1.observe(test_state)
-        obs2.observe(test_state)
-
-        # Evaluate
-        eval1 = ConsciousnessEvaluator(obs1)
-        eval2 = ConsciousnessEvaluator(obs2)
-
-        metrics1 = eval1.evaluate()
-        metrics2 = eval2.evaluate()
-
-        # Better self-model should have higher self-accuracy
-        # (though both might be low without real training)
-        assert metrics2.self_accuracy >= metrics1.self_accuracy - 0.1
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+        assert m_good.self_accuracy > m_bad.self_accuracy
+        assert m_good.consciousness_score() > m_bad.consciousness_score()

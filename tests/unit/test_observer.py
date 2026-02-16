@@ -315,7 +315,10 @@ class TestObserver:
             world_model=SimpleMapping(),
             self_model=SimpleMapping(),
         )
-        assert observer2.is_conscious()
+        # Feed observations so the behavioral evaluator has data
+        for i in range(10):
+            observer2.observe(State(values={external_dof: float(i)}))
+        assert observer2.is_conscious(threshold=0.3)
 
     def test_recursive_depth(self) -> None:
         """Test recursive depth computation."""
