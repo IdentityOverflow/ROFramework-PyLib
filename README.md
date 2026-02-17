@@ -46,6 +46,8 @@ It doesn't work on raw text — you need to pick a numeric representation layer.
 
 ## Installation
 
+### Using pip
+
 ```bash
 # Core (numpy + scipy)
 pip install -e .
@@ -55,6 +57,22 @@ pip install -e ".[torch]"
 
 # Everything
 pip install -e ".[all]"
+```
+
+### Using conda
+
+If you prefer isolated environments via [conda](https://docs.conda.io/projects/conda/en/latest/user-guide/install/index.html) (or [Miniforge](https://github.com/conda-forge/miniforge)):
+
+```bash
+# Create and activate environment
+conda create -n ro-framework python=3.10
+conda activate ro-framework
+
+# Install the library
+pip install -e ".[all]"
+
+# Run tests
+pytest tests/ -v
 ```
 
 ## Quick Start
@@ -191,6 +209,41 @@ python examples/01_basic_observer.py
 python examples/02_pytorch_conscious_observer.py
 python examples/03_knowledge_assessment.py
 ```
+
+## Known Limitations
+
+This is a v0.2.0 research library. Be aware of these issues:
+
+**Systematic error detection is broken.** The knowledge assessment computes bias (`ε`) on z-scored residuals. Since z-scoring makes both series zero-mean, `mean(residuals)` is always ~0 regardless of actual bias. The `"false"` knowledge type cannot currently be triggered. A model with large systematic offset will still be classified as `"strong"` knowledge. This needs to be reworked to use scale-normalized (not zero-mean) residuals.
+
+**No input validation on observe().** The world model is any callable — there's no check that its output State actually contains the declared `internal_dofs`. Silent mismatches produce confusing downstream results (empty knowledge assessments, zero-score consciousness metrics) with no error message.
+
+**No serialization.** You can't save an Observer with its observation history and reload it later. Any workflow that spans multiple sessions requires re-wrapping and re-observing.
+
+**Only tested on toy models.** All examples and tests use small MLPs, identity mappings, and synthetic data. There is no validated example of wrapping a real pre-trained model (ResNet, BERT, etc.) and producing meaningful knowledge assessments.
+
+**Batch path is PyTorch-only.** `observe_batch()` does a single forward pass for `TorchNeuralMapping` but falls back to a Python loop for plain callables. Large-scale numpy workflows will be slow.
+
+**Single-observer only.** The theory describes observers observing each other and observer-relative knowledge. The library only supports individual observers — no multi-observer comparison or ensemble analysis.
+
+## Roadmap
+
+Short-term (bug fixes and usability):
+- Fix systematic error computation to detect real bias
+- Add input/output DoF validation on `observe()`
+- Observer serialization (save/load with observation history)
+- Numpy-native batch path for `_CallableMapping`
+
+Medium-term (proving it works on real models):
+- Working example wrapping a HuggingFace model encoder and assessing knowledge of specific features
+- Training-time integration — knowledge assessment and calibration as loss terms
+- Temporal knowledge dynamics — tracking how knowledge degrades on distribution shift
+
+Longer-term (research directions):
+- Multi-observer systems — comparing knowledge across model ensembles
+- Causal vs. correlational knowledge distinction
+- Information-theoretic knowledge bounds given observer resolution and boundary
+- Bridge to mechanistic interpretability (automatic DoF discovery from internal representations)
 
 ## Documentation
 
