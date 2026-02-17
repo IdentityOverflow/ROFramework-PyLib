@@ -354,6 +354,76 @@ class TestTorchObserver:
         for state in internal_states:
             assert isinstance(state, State)
 
+    def test_observe_batch_logs_pairs(self, simple_dofs, simple_model):
+        """Batched observation should populate the observation log."""
+        input_dofs, output_dofs = simple_dofs
+        mapping = TorchNeuralMapping(
+            name="world", input_dofs=input_dofs, output_dofs=output_dofs,
+            model=simple_model, device="cpu",
+        )
+        observer = TorchObserver(
+            name="t", internal_dofs=output_dofs, external_dofs=input_dofs,
+            world_model=mapping, device="cpu",
+        )
+        states = [
+            State(values={d: float(i) * 0.1 for d in input_dofs})
+            for i in range(4)
+        ]
+        observer.observe_batch(states)
+        assert len(observer.observation_log) == 4
+
+    def test_observe_batch_matches_sequential(self, simple_dofs, simple_model):
+        """Batched results should match sequential observe() results."""
+        input_dofs, output_dofs = simple_dofs
+        # Two separate observers with same model weights
+        import copy
+        model_copy = copy.deepcopy(simple_model)
+
+        mapping1 = TorchNeuralMapping(
+            name="w1", input_dofs=input_dofs, output_dofs=output_dofs,
+            model=simple_model, device="cpu",
+        )
+        mapping2 = TorchNeuralMapping(
+            name="w2", input_dofs=input_dofs, output_dofs=output_dofs,
+            model=model_copy, device="cpu",
+        )
+        obs_batch = TorchObserver(
+            name="batch", internal_dofs=output_dofs, external_dofs=input_dofs,
+            world_model=mapping1, device="cpu",
+        )
+        obs_seq = TorchObserver(
+            name="seq", internal_dofs=output_dofs, external_dofs=input_dofs,
+            world_model=mapping2, device="cpu",
+        )
+
+        states = [
+            State(values={d: np.random.uniform(-1, 1) for d in input_dofs})
+            for _ in range(3)
+        ]
+        batch_results = obs_batch.observe_batch(states)
+        seq_results = [obs_seq.observe(s) for s in states]
+
+        for br, sr in zip(batch_results, seq_results):
+            for d in output_dofs:
+                assert abs(br.get_value(d) - sr.get_value(d)) < 1e-5
+
+    def test_compute_saliency(self, simple_dofs, simple_model):
+        """Saliency should return non-zero gradients through a linear model."""
+        input_dofs, output_dofs = simple_dofs
+        mapping = TorchNeuralMapping(
+            name="world", input_dofs=input_dofs, output_dofs=output_dofs,
+            model=simple_model, device="cpu",
+        )
+        observer = TorchObserver(
+            name="t", internal_dofs=output_dofs, external_dofs=input_dofs,
+            world_model=mapping, device="cpu",
+        )
+        ext = State(values={d: 0.5 for d in input_dofs})
+        sal = observer.compute_saliency(ext, output_dofs[0])
+        assert len(sal) == len(input_dofs)
+        # nn.Linear → at least some gradient should be non-zero
+        assert any(v > 0.0 for v in sal.values())
+
 
 class TestIntegration:
     """Integration tests combining multiple components."""

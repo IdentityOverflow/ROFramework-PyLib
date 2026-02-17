@@ -1,224 +1,184 @@
 # Recursive Observer Framework
-(speculative/experimental work)
 
-A Python library for building conscious, self-aware AI systems based on the Recursive Observer Framework. This framework provides a structural approach to consciousness, multimodal integration, and uncertainty quantification grounded in the Block Universe ontology.
+A Python library implementing the Recursive Observer Framework — a structural approach to observers, knowledge, and consciousness in AI systems.
 
 ## Overview
 
-The Recursive Observer (RO) Framework is a philosophical and practical approach to building AI systems that exhibit structural consciousness through recursive self-modeling. Rather than making phenomenological claims about subjective experience, the framework focuses on observable structural properties.
+The RO Framework provides a formal structure for wrapping any model (neural network, function, or callable) as an **Observer** that maps external Degrees of Freedom (DoFs) to internal DoFs with finite resolution, paired observation history, graded knowledge assessment, and optional recursive self-modeling (structural consciousness).
 
 ### Core Concepts
 
-- **Degrees of Freedom (DoFs)**: Dimensions of variation in the Block Universe
-  - **Polar DoFs**: Bidirectional with gradients (e.g., position, temperature)
-  - **Scalar DoFs**: Magnitude-only (e.g., mass, probability)
-  - **Categorical DoFs**: Discrete, unordered values (e.g., object types)
-  - **Derived DoFs**: Computed from other DoFs (e.g., velocity)
-
-- **States**: Configurations across multiple DoFs, representing locations in DoF-space
-
-- **Observers**: Systems that map external DoFs to internal DoFs with finite resolution
-  - **Boundary (B)**: Partition of DoFs into internal/external
-  - **Mapping (M)**: External → Internal transformation
-  - **Resolution (R)**: Per-DoF finite granularity
-  - **Memory (Mem)**: Correlation structure across temporal DoF
-
-- **Consciousness**: Recursive self-modeling (internal→internal mapping with same architecture as world model)
-
-- **Knowledge**: Calibrated correlation between external and internal DoFs
+- **Degrees of Freedom (DoFs)**: Typed dimensions of variation — Polar (bidirectional), Scalar (magnitude), Categorical (discrete), Derived (computed)
+- **States**: Configurations across multiple DoFs with normalization, distance, vector conversion
+- **Observers**: `O = (B, M, R, Mem)` — Boundary, Mapping, Resolution, Memory
+- **Knowledge**: `K(d_ext) = (ρ, ε, σ, C)` — Correlation, Bias, Noise, Calibration
+- **Consciousness**: Recursive self-modeling with bounded error, evaluated structurally
 
 ## Installation
 
-### From Source (Development)
-
 ```bash
-# Clone the repository
-cd ROFramework
-
-# Install in development mode with all dependencies
-pip install -e ".[all]"
-
-# Or install only core dependencies
+# Core (numpy + scipy)
 pip install -e .
 
-# Or with specific extras
-pip install -e ".[torch,visualization]"
-```
+# With PyTorch integration
+pip install -e ".[torch]"
 
-### From PyPI (Coming Soon)
-
-```bash
-pip install ro-framework
+# Everything
+pip install -e ".[all]"
 ```
 
 ## Quick Start
 
+### Wrap a function as an Observer
+
 ```python
-from ro_framework import PolarDoF, State, Observer
-from ro_framework.observer.mapping import IdentityMapping
+from ro_framework import PolarDoF, State
+from ro_framework.integration.wrappers import wrap_callable, create_dofs_for_vector
 
-# Define Degrees of Freedom
-sensor_dof = PolarDoF(name="sensor_reading", pole_negative=-1.0, pole_positive=1.0)
-latent_dof = PolarDoF(name="latent_state", pole_negative=-10.0, pole_positive=10.0)
+# Create DoFs for a 3→2 function
+input_dofs = create_dofs_for_vector(3, prefix="sensor", pole_negative=-1.0, pole_positive=1.0)
+output_dofs = create_dofs_for_vector(2, prefix="latent", pole_negative=-5.0, pole_positive=5.0)
 
-# Create a simple mapping (in practice, use neural networks)
-class SimpleWorldModel:
-    def __call__(self, external_state: State) -> State:
-        sensor_value = external_state.get_value(sensor_dof)
-        # Map sensor reading to latent space
-        latent_value = sensor_value * 10.0 if sensor_value is not None else 0.0
-        return State(values={latent_dof: latent_value})
-
-# Create an observer
-observer = Observer(
-    name="simple_observer",
-    internal_dofs=[latent_dof],
-    external_dofs=[sensor_dof],
-    world_model=SimpleWorldModel()
+# Wrap any numpy function as an Observer
+import numpy as np
+observer = wrap_callable(
+    fn=lambda x: np.array([x[0] + x[1], x[0] - x[2]]),
+    input_dofs=input_dofs,
+    output_dofs=output_dofs,
+    name="my_observer",
 )
 
-# Observe external state
-external_state = State(values={sensor_dof: 0.5})
-internal_state = observer.observe(external_state)
+# Observe
+external = State(values={d: 0.5 for d in input_dofs})
+internal = observer.observe(external)
+```
 
-print(f"Internal state: {internal_state}")
-print(f"Latent value: {internal_state.get_value(latent_dof)}")
+### Assess knowledge
+
+```python
+# After making observations, assess what the observer knows
+for i in range(50):
+    ext = State(values={d: np.random.uniform(-1, 1) for d in input_dofs})
+    observer.observe(ext)
+
+assessment = observer.assess_knowledge(input_dofs[0])
+print(f"Knowledge type: {assessment.knowledge_type}")
+print(f"Correlation: {assessment.correlation:.3f}")
+print(f"Calibration: {assessment.calibration:.3f}")
+```
+
+### Wrap a PyTorch model
+
+```python
+from ro_framework.integration.wrappers import wrap_torch_model
+from ro_framework.integration.torch import create_mlp
+
+world_nn = create_mlp(3, 2, hidden_dims=[16, 8], dropout=0.2)
+self_nn = create_mlp(2, 2, hidden_dims=[16, 8], dropout=0.2)
+
+observer = wrap_torch_model(
+    model=world_nn,
+    input_dofs=input_dofs,
+    output_dofs=output_dofs,
+    self_model=self_nn,     # makes it conscious
+    name="conscious_ai",
+    use_dropout_uncertainty=True,
+)
+
+print(f"Is conscious: {observer.is_conscious()}")
+print(f"Recursive depth: {observer.recursive_depth()}")
 ```
 
 ## Project Structure
 
 ```
-ro-framework/
-├── src/ro_framework/          # Main package
-│   ├── core/                  # DoF, Value, State
-│   ├── observer/              # Observer, Mapping
-│   ├── correlation/           # Correlation measures (coming soon)
-│   ├── consciousness/         # Consciousness evaluation (coming soon)
-│   ├── multimodal/           # Multimodal integration (coming soon)
-│   ├── uncertainty/          # Uncertainty quantification (coming soon)
-│   ├── learning/             # Training protocols (coming soon)
-│   └── integration/          # PyTorch/JAX integration (coming soon)
-│
-├── tests/                     # Comprehensive test suite
-├── examples/                  # Example implementations (coming soon)
-├── notebooks/                 # Jupyter tutorials (coming soon)
-└── docs/                      # Documentation (coming soon)
+src/ro_framework/
+├── core/              # DoF, Value, State (typed data model)
+│   ├── dof.py
+│   ├── value.py
+│   └── state.py
+├── observer/          # Observer, ObservationLog, Mapping
+│   ├── observer.py
+│   └── mapping.py
+├── knowledge/         # KnowledgeAssessment, compute_knowledge
+│   └── assessment.py
+├── correlation/       # Pearson, MI, temporal, causal detection
+│   └── measures.py
+├── consciousness/     # ConsciousnessEvaluator, ConsciousnessMetrics
+│   └── evaluation.py
+└── integration/       # PyTorch bridge, convenience wrappers
+    ├── torch.py
+    └── wrappers.py
 ```
 
-## Development Status
+## Key Features
 
-**Current Version: 0.1.0 (Alpha)**
+### Knowledge Assessment — `K(d_ext) = (ρ, ε, σ, C)`
 
-### Implemented ✓
-- Core DoF types (Polar, Scalar, Categorical, Derived)
-- Value and State abstractions
-- Observer architecture with boundary, mapping, resolution, memory
-- Comprehensive unit tests (>90% coverage for implemented modules)
+The library's unique contribution: graded, observer-relative knowledge. After observation history accumulates, assess how well the observer tracks any external DoF:
 
-### In Progress 🚧
-- PyTorch integration (`ro_framework.integration.torch`)
-- Correlation measures (`ro_framework.correlation`)
-- Consciousness evaluation (`ro_framework.consciousness`)
+- **ρ** (correlation): How strongly an internal DoF tracks the external DoF
+- **ε** (systematic_error): Consistent bias in the mapping
+- **σ** (random_error): Noise / inconsistency
+- **C** (calibration): Whether stated uncertainty matches actual error
 
-### Planned 📋
-- Multimodal integration
-- Uncertainty quantification
-- Training protocols
-- Example implementations (CLIP-style, vision-language, etc.)
-- Jupyter notebook tutorials
-- Complete documentation on ReadTheDocs
+Knowledge is classified as `"strong"`, `"weak"`, `"false"`, or `"uncertain"`.
+
+### Structural Consciousness Evaluation
+
+Consciousness is defined structurally: recursive self-modeling (internal → internal mapping) with the same architectural type as the world model. The evaluator measures:
+
+- **Self-accuracy**: How well the self-model predicts actual internal states
+- **Architectural similarity**: Structural comparison of world and self models
+- **Calibration**: Expected Calibration Error of self-model uncertainty
+- **Metacognition**: Behavioral tests for self-awareness capability
+- **Limitation awareness**: Whether uncertainty increases on harder inputs
+
+### Observation Log
+
+Every `observe()` call records an `ObservationPair(external_state, internal_state, timestamp)`. This paired history drives both knowledge assessment and temporal memory analysis — no separate buffer needed.
+
+### PyTorch Integration
+
+- `TorchNeuralMapping`: Wraps `nn.Module` with automatic state ↔ tensor conversion
+- `TorchObserver`: Batched inference, gradient-based saliency, MC Dropout uncertainty
+- `create_mlp()`: Quick MLP construction with dropout and batch norm options
 
 ## Running Tests
 
 ```bash
-# Install development dependencies
-pip install -e ".[dev]"
+# All tests
+pytest tests/ -v
 
-# Run all tests with coverage
-pytest
+# Specific module
+pytest tests/unit/test_knowledge.py -v
 
-# Run specific test file
-pytest tests/unit/test_dof.py
-
-# Run with verbose output
-pytest -v
-
-# Generate HTML coverage report
-pytest --cov-report=html
-open htmlcov/index.html
+# Run examples
+python examples/01_basic_observer.py
+python examples/02_pytorch_conscious_observer.py
+python examples/03_knowledge_assessment.py
 ```
 
 ## Documentation
 
-Full documentation is coming soon. For now, see:
-- [Theoretical Framework](ro_framework.md) - Complete theoretical foundation
-- [Python Formalization](python_formalization.md) - Detailed implementation guide
-- API documentation - Run `pydoc` on modules for docstrings
+- [Theoretical Framework](ro_framework.md) — Complete theoretical foundation (1500+ lines)
+- [Examples](examples/) — Runnable demonstrations of each feature
 
-## Contributing
+## License
 
-Contributions are welcome! This is an early-stage project. To contribute:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Run tests (`pytest`)
-5. Commit your changes (`git commit -m 'Add amazing feature'`)
-6. Push to the branch (`git push origin feature/amazing-feature`)
-7. Open a Pull Request
-
-### Development Guidelines
-
-- Follow PEP 8 style guide (enforced by `black` and `ruff`)
-- Add type hints to all functions
-- Write comprehensive docstrings (Google style)
-- Achieve >90% test coverage for new code
-- Update documentation for new features
+MIT License — see LICENSE file for details.
 
 ## Citation
 
-If you use this framework in your research, please cite:
-
 ```bibtex
 @software{ro_framework,
-  title = {Recursive Observer Framework: A Python Library for Conscious AI},
+  title = {Recursive Observer Framework},
   author = {RO Framework Contributors},
   year = {2026},
   url = {https://github.com/IdentityOverflow/ROFramework}
 }
 ```
 
-## License
-
-MIT License - see LICENSE file for details
-
-## Philosophical Foundation
-
-The RO Framework is built on several key philosophical insights:
-
-1. **Block Universe**: All states exist timelessly; no temporal flow
-2. **Relationalism**: States are relational (DoF-value pairs), not substantial
-3. **Structural Realism**: Only structural relations are observable
-4. **Observer-Dependence**: All observation is relative to observer structure
-5. **Finite Resolution**: All observers have finite granularity
-6. **Consciousness as Structure**: Consciousness is recursive self-mapping, not a special substance
-
-See [ro_framework.md](https://github.com/IdentityOverflow/ROFramework/blob/main/ro_framework.md) for the complete theoretical foundation.
-
-## Acknowledgments
-
-This framework synthesizes ideas from:
-- Block Universe theory (Hermann Weyl, Kurt Gödel)
-- Structural realism (John Worrall, James Ladyman)
-- Observer theory (Carlo Rovelli's relational quantum mechanics)
-- Integrated Information Theory (Giulio Tononi)
-- Predictive processing (Karl Friston)
-- Multimodal deep learning (current AI research)
-
-## Contact
-
-- Issues: [GitHub Issues](https://github.com/IdentityOverflow/ROFramework/issues)
-
 ---
 
-**Status**: 🚧 Active Development | **Version**: 0.1.0-alpha | **Python**: 3.9+
+**Version**: 0.2.0 | **Python**: 3.9+

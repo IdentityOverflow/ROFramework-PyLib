@@ -78,21 +78,20 @@ src/ro_framework/
 - [x] All tests pass (190/190)
 
 ### Phase 4: Integration Improvements
-- [ ] Fix `TorchObserver.compute_saliency()` (real gradients, not zeros)
-- [ ] Fix `TorchObserver.observe_batch()` (actual tensor batching)
-- [ ] Create `integration/wrappers.py` (wrap_callable, wrap_torch_model, create_dofs_for_vector)
-- [ ] Write `tests/unit/test_wrappers.py`
-- [ ] Update `tests/unit/test_torch_integration.py`
-- [ ] All tests pass
+- [x] Fix `TorchObserver.compute_saliency()` — real gradient-based attribution via input_tensor.grad
+- [x] Fix `TorchObserver.observe_batch()` — single batched forward pass + observation log
+- [x] Create `integration/wrappers.py` (wrap_callable, wrap_torch_model, create_dofs_for_vector)
+- [x] Write `tests/unit/test_wrappers.py` (13 tests)
+- [x] Update `tests/unit/test_torch_integration.py` (+3 tests: batch logging, batch≡sequential, saliency)
+- [x] All tests pass (206/206)
 
 ### Phase 5: Documentation and Polish
-- [ ] Rewrite `README.md`
-- [ ] Update examples 01, 02, 04, 05
-- [ ] New `examples/03_knowledge_assessment.py`
-- [ ] Update `__init__.py` exports
-- [ ] Bump version to 0.2.0
-- [ ] All tests + examples pass
+- [x] Rewrite `README.md`
+- [x] Update examples 01, 02, 04, 05
+- [x] New `examples/03_knowledge_assessment.py`
+- [x] Update `__init__.py` exports
+- [x] Bump version to 0.2.0
+- [x] All tests + examples pass (206/206)
 
 ## Current Status
-**Active Phase**: 4 — Integration Improvements
-**Phases 1–3**: Complete (190/190 tests passing)
+**v0.2.0 complete** — All 5 phases done (206/206 tests passing, all examples run)

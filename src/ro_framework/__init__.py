@@ -1,17 +1,18 @@
 """
 Recursive Observer Framework
 
-A Python library for building conscious, self-aware AI systems based on
-the Recursive Observer Framework. This framework provides a structural
-approach to consciousness, multimodal integration, and uncertainty
-quantification grounded in the Block Universe ontology.
+A Python library for building observers with graded knowledge assessment
+and structural consciousness evaluation. Wraps any model (neural network,
+function, or callable) as an Observer that maps external DoFs to internal
+DoFs with finite resolution, paired observation history, and optional
+recursive self-modeling.
 
 Core concepts:
-- Degrees of Freedom (DoFs): Dimensions of variation in the Block Universe
+- Degrees of Freedom (DoFs): Typed dimensions of variation
 - States: Configurations across multiple DoFs
-- Observers: Systems that map external DoFs to internal DoFs
-- Consciousness: Recursive self-modeling (internal→internal mapping)
-- Memory: Correlation structure across temporal DoF
+- Observers: O = (B, M, R, Mem) — Boundary, Mapping, Resolution, Memory
+- Knowledge: K(d_ext) = (ρ, ε, σ, C) — graded, observer-relative
+- Consciousness: Recursive self-modeling with bounded error
 """
 
 from ro_framework.version import __version__
@@ -29,8 +30,17 @@ from ro_framework.core.value import Value
 from ro_framework.core.state import State
 
 # Observer exports
-from ro_framework.observer.observer import Observer
+from ro_framework.observer.observer import Observer, ObservationPair, ObservationLog
 from ro_framework.observer.mapping import MappingFunction, NeuralMapping
+
+# Knowledge exports
+from ro_framework.knowledge.assessment import KnowledgeAssessment, compute_knowledge
+
+# Consciousness exports
+from ro_framework.consciousness.evaluation import (
+    ConsciousnessEvaluator,
+    ConsciousnessMetrics,
+)
 
 __all__ = [
     "__version__",
@@ -45,6 +55,14 @@ __all__ = [
     "State",
     # Observer
     "Observer",
+    "ObservationPair",
+    "ObservationLog",
     "MappingFunction",
     "NeuralMapping",
+    # Knowledge
+    "KnowledgeAssessment",
+    "compute_knowledge",
+    # Consciousness
+    "ConsciousnessEvaluator",
+    "ConsciousnessMetrics",
 ]

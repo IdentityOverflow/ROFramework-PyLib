@@ -205,18 +205,44 @@ class TorchObserver(Observer):
 
     def observe_batch(self, external_states: List[State]) -> List[State]:
         """
-        Efficiently process a batch of states.
+        Process a batch of states via a single batched forward pass.
+
+        Falls back to sequential observation if the world_model is not
+        a TorchNeuralMapping.
 
         Args:
             external_states: List of external states to observe
 
         Returns:
-            List of internal states
+            List of internal states (each also logged in observation_log)
         """
-        internal_states = []
-        for external_state in external_states:
-            internal_state = self.observe(external_state)
-            internal_states.append(internal_state)
+        if not isinstance(self.world_model, TorchNeuralMapping) or not external_states:
+            return [self.observe(s) for s in external_states]
+
+        mapping: TorchNeuralMapping = self.world_model
+
+        # Stack inputs into a single (N, D_in) tensor
+        vectors = [s.to_vector(mapping.input_dofs) for s in external_states]
+        batch_np = np.stack(vectors)
+        batch_tensor = torch.from_numpy(batch_np).float().to(mapping.device)
+
+        with torch.no_grad():
+            out_tensor = mapping.model(batch_tensor)  # (N, D_out)
+
+        out_np = out_tensor.cpu().numpy()
+
+        # Convert each row back to a State and log the pair
+        internal_states: List[State] = []
+        for i, ext_state in enumerate(external_states):
+            int_state = State.from_vector(out_np[i], mapping.output_dofs)
+            self.internal_state = int_state
+            from ro_framework.observer.observer import ObservationPair
+            self.observation_log.append(ObservationPair(
+                external_state=ext_state,
+                internal_state=int_state,
+                timestamp=float(len(self.observation_log)),
+            ))
+            internal_states.append(int_state)
 
         return internal_states
 
@@ -224,35 +250,56 @@ class TorchObserver(Observer):
         """
         Compute saliency map: which input DoFs most affect target output DoF.
 
-        Uses gradient-based attribution to determine importance.
+        Uses gradient-based attribution (|d output / d input|) to score
+        each external DoF's influence on the target internal DoF.
 
         Args:
             external_state: Input state
             target_dof: Output DoF to compute saliency for
 
         Returns:
-            Dictionary mapping input DoFs to importance scores
+            Dictionary mapping input DoFs to importance scores (abs gradient)
         """
         if not isinstance(self.world_model, TorchNeuralMapping):
             raise ValueError("Saliency computation requires TorchNeuralMapping")
 
-        # Forward pass with gradients
-        _, output_tensor = self.world_model.forward_with_gradients(external_state)
+        mapping: TorchNeuralMapping = self.world_model
 
-        # Get index of target DoF
-        target_idx = self.world_model.output_dofs.index(target_dof)
+        # Build input tensor with gradient tracking
+        input_vector = external_state.to_vector(mapping.input_dofs)
+        input_tensor = (
+            torch.from_numpy(input_vector)
+            .float()
+            .unsqueeze(0)
+            .to(mapping.device)
+            .requires_grad_(True)
+        )
 
-        # Compute gradients
+        # Forward pass
+        output_tensor = mapping.model(input_tensor)
+
+        # Get index of target DoF and backprop
+        target_idx = mapping.output_dofs.index(target_dof)
         output_tensor[0, target_idx].backward()
 
-        # Get input gradients (saliency)
-        # This is simplified - actual implementation would extract from input tensor
-        saliency = {}
-        for dof in self.external_dofs:
-            # Placeholder - actual gradient extraction needed
-            saliency[dof] = 0.0
+        # Extract per-input-DoF gradient magnitudes
+        grads = input_tensor.grad.squeeze(0).abs().cpu().numpy()
+
+        saliency: Dict[DoF, float] = {}
+        for i, dof in enumerate(self.external_dofs):
+            saliency[dof] = float(grads[i]) if i < len(grads) else 0.0
 
         return saliency
+
+    def __repr__(self) -> str:
+        return (
+            f"TorchObserver(name='{self.name}', "
+            f"internal_dofs={len(self.internal_dofs)}, "
+            f"external_dofs={len(self.external_dofs)}, "
+            f"has_self_model={self.self_model is not None}, "
+            f"observations={len(self.observation_log)}, "
+            f"device='{self.device}')"
+        )
 
 
 def create_mlp(

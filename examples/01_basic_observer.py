@@ -7,6 +7,7 @@ This example shows the core concepts of the RO Framework:
 - Creating States
 - Building an Observer with a world model
 - Observing external states
+- Assessing knowledge from observation history
 """
 
 from ro_framework import PolarDoF, PolarDoFType, State, Observer
@@ -61,7 +62,7 @@ def main() -> None:
             return State(values={latent_dof: latent_value})
 
     world_model = SimpleWorldModel()
-    print("  - World model created (external → internal mapping)")
+    print("  - World model created (external -> internal mapping)")
     print()
 
     # 3. Create an observer
@@ -73,9 +74,7 @@ def main() -> None:
         world_model=world_model,
     )
 
-    print(f"  - Observer: {observer.name}")
-    print(f"  - Internal DoFs: {len(observer.internal_dofs)}")
-    print(f"  - External DoFs: {len(observer.external_dofs)}")
+    print(f"  - {observer}")
     print(f"  - Is conscious? {observer.is_conscious()}")
     print()
 
@@ -84,32 +83,54 @@ def main() -> None:
     test_values = [-0.8, -0.3, 0.0, 0.5, 1.0]
 
     for sensor_value in test_values:
-        # Create external state
         external_state = State(values={sensor_dof: sensor_value})
-
-        # Observe
         internal_state = observer.observe(external_state)
         latent_value = internal_state.get_value(latent_dof)
-
-        print(f"  - Sensor: {sensor_value:+.2f} → Latent: {latent_value:+.2f}")
+        print(f"  - Sensor: {sensor_value:+.2f} -> Latent: {latent_value:+.2f}")
 
     print()
 
-    # 5. Demonstrate state distance
-    print("5. Computing state distances...")
+    # 5. Assess knowledge from observation history
+    print("5. Assessing knowledge...")
+    print(f"  - Observations recorded: {observer.get_memory_size()}")
+
+    # Need more varied observations for meaningful assessment
+    import numpy as np
+    np.random.seed(42)
+    for _ in range(45):
+        val = np.random.uniform(-1.0, 1.0)
+        observer.observe(State(values={sensor_dof: val}))
+
+    assessment = observer.assess_knowledge(sensor_dof)
+    if assessment is not None:
+        print(f"  - Knowledge of '{sensor_dof.name}':")
+        print(f"    Type: {assessment.knowledge_type}")
+        print(f"    Correlation: {assessment.correlation:.3f}")
+        print(f"    Systematic error: {assessment.systematic_error:.3f}")
+        print(f"    Random error: {assessment.random_error:.3f}")
+        print(f"    Calibration: {assessment.calibration:.3f}")
+        print(f"    Knows sensor? {observer.know(sensor_dof)}")
+    else:
+        print("  - Insufficient data for knowledge assessment")
+    print()
+
+    # 6. Demonstrate state distance
+    print("6. Computing state distances...")
     state1 = State(values={sensor_dof: -1.0})
     state2 = State(values={sensor_dof: 1.0})
 
     distance = state1.distance_to(state2)
-    print(f"  - Distance from {state1.get_value(sensor_dof)} to " f"{state2.get_value(sensor_dof)}: {distance:.2f}")
+    print(f"  - Distance from {state1.get_value(sensor_dof)} to "
+          f"{state2.get_value(sensor_dof)}: {distance:.2f}")
     print()
 
-    # 6. Demonstrate DoF normalization
-    print("6. DoF normalization (for neural networks)...")
+    # 7. Demonstrate DoF normalization
+    print("7. DoF normalization (for neural networks)...")
     for value in [-1.0, 0.0, 1.0]:
         normalized = sensor_dof.normalize(value)
         denormalized = sensor_dof.denormalize(normalized)
-        print(f"  - Value: {value:+.2f} → Normalized: {normalized:+.2f} → " f"Denormalized: {denormalized:+.2f}")
+        print(f"  - Value: {value:+.2f} -> Normalized: {normalized:+.2f} -> "
+              f"Denormalized: {denormalized:+.2f}")
 
     print()
     print("=" * 60)

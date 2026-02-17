@@ -2,8 +2,9 @@
 Memory and Temporal Correlation Example
 
 Demonstrates the integrated memory system using proper temporal correlation
-analysis from the correlation module. Shows how memory is now a structural
-property based on correlation across temporal DoF, not just a buffer.
+analysis from the correlation module. Shows how memory is a structural
+property based on correlation across temporal DoF, built from observation
+history (not a separate buffer).
 """
 
 import numpy as np
@@ -43,19 +44,19 @@ def demo_memory_detection():
     np.random.seed(42)
 
     # Generate AR(1) process: x_t = 0.8 * x_{t-1} + noise
-    x = 0
-    for t in range(50):
+    x = 0.0
+    for _ in range(50):
         x = 0.8 * x + np.random.randn() * 0.5
         state = State(values={sensor_dof: float(np.clip(x, -10, 10))})
-        observer.memory_buffer.append(state)
+        observer.observe(state)
 
     has_memory = observer.has_memory(threshold=0.5)
     print(f"Has memory: {has_memory}")
-    print(f"Memory buffer size: {observer.get_memory_size()}")
+    print(f"Observation count: {observer.get_memory_size()}")
 
     # Analyze memory structure
     analysis = observer.analyze_memory_structure(max_lag=5)
-    print(f"\nTemporal correlation profile (lags 1-5):")
+    print("\nTemporal correlation profile (lags 1-5):")
     for dof, correlations in analysis.items():
         print(f"  {dof.name}: {[f'{c:.3f}' for c in correlations]}")
 
@@ -63,16 +64,16 @@ def demo_memory_detection():
     print("\n--- Scenario 2: Random sequence (No Memory) ---")
     observer.clear_memory()
 
-    for t in range(50):
+    for _ in range(50):
         x = np.random.randn() * 5
         state = State(values={sensor_dof: float(np.clip(x, -10, 10))})
-        observer.memory_buffer.append(state)
+        observer.observe(state)
 
     has_memory = observer.has_memory(threshold=0.5)
     print(f"Has memory: {has_memory}")
 
     analysis = observer.analyze_memory_structure(max_lag=5)
-    print(f"\nTemporal correlation profile:")
+    print("\nTemporal correlation profile:")
     for dof, correlations in analysis.items():
         print(f"  {dof.name}: {[f'{c:.3f}' for c in correlations]}")
 
@@ -99,12 +100,12 @@ def demo_memory_with_multiple_dofs():
         temporal_dof=temporal_dof
     )
 
-    # Generate correlated sequences
+    # Generate correlated sequences via observation
     np.random.seed(42)
-    x1 = 0
-    x2 = 0
+    x1 = 0.0
+    x2 = 0.0
 
-    for t in range(40):
+    for _ in range(40):
         # x1 has strong autocorrelation
         x1 = 0.9 * x1 + np.random.randn() * 0.3
 
@@ -115,9 +116,9 @@ def demo_memory_with_multiple_dofs():
             latent1: float(np.clip(x1, -5, 5)),
             latent2: float(np.clip(x2, -5, 5))
         })
-        observer.memory_buffer.append(state)
+        observer.observe(state)
 
-    print(f"\nMemory buffer size: {observer.get_memory_size()}")
+    print(f"\nObservation count: {observer.get_memory_size()}")
     print(f"Has memory: {observer.has_memory(threshold=0.5)}")
 
     # Analyze individual DoF temporal correlations
@@ -167,7 +168,7 @@ def demo_observation_with_memory():
         # Check memory every 10 steps
         if (t + 1) % 10 == 0:
             has_memory = observer.has_memory(threshold=0.5)
-            print(f"  Step {t+1}: Memory={has_memory}, Buffer size={observer.get_memory_size()}")
+            print(f"  Step {t+1}: Memory={has_memory}, Observations={observer.get_memory_size()}")
 
     # Final analysis
     print("\nFinal Memory Analysis:")
@@ -193,11 +194,10 @@ def main():
     print("Demonstration Complete!")
     print("=" * 60)
     print("\nKey Points:")
-    print("- Memory is now detected via temporal correlation (not just buffer)")
-    print("- Uses correlation module's temporal_correlation() function")
+    print("- Memory is detected via temporal correlation in the observation log")
+    print("- Every observe() call records an (external, internal) pair")
     print("- analyze_memory_structure() provides detailed correlation profiles")
     print("- get_memory_correlations() checks cross-correlations between DoFs")
-    print("- Properly integrates with Observer's temporal DoF")
 
 
 if __name__ == "__main__":
