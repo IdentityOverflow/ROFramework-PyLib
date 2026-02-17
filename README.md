@@ -1,18 +1,48 @@
 # Recursive Observer Framework
 
-A Python library implementing the Recursive Observer Framework — a structural approach to observers, knowledge, and consciousness in AI systems.
+A Python library for wrapping any model as an **Observer** and asking structured questions about what it knows, how well-calibrated it is, and whether it can model itself.
 
-## Overview
+## What is this good for?
 
-The RO Framework provides a formal structure for wrapping any model (neural network, function, or callable) as an **Observer** that maps external Degrees of Freedom (DoFs) to internal DoFs with finite resolution, paired observation history, graded knowledge assessment, and optional recursive self-modeling (structural consciousness).
+Most ML tools focus on *training* models. This library focuses on *understanding* them after the fact.
 
-### Core Concepts
+**Graded knowledge assessment** — Go beyond accuracy. When you wrap a model and feed it data, the library tracks paired (input, output) history and computes a four-dimensional knowledge profile:
+- Is the model's internal state *correlated* with the input? (not just "right or wrong")
+- Is there *systematic bias*? (consistently wrong in one direction)
+- How *noisy* is the mapping? (inconsistent outputs for similar inputs)
+- Is *uncertainty calibrated*? (when it says "80% confident", is it right 80% of the time?)
 
-- **Degrees of Freedom (DoFs)**: Typed dimensions of variation — Polar (bidirectional), Scalar (magnitude), Categorical (discrete), Derived (computed)
-- **States**: Configurations across multiple DoFs with normalization, distance, vector conversion
-- **Observers**: `O = (B, M, R, Mem)` — Boundary, Mapping, Resolution, Memory
-- **Knowledge**: `K(d_ext) = (ρ, ε, σ, C)` — Correlation, Bias, Noise, Calibration
-- **Consciousness**: Recursive self-modeling with bounded error, evaluated structurally
+A model can be 90% accurate but systematically biased — this library tells you the difference between "strong", "weak", "false", and "uncertain" knowledge.
+
+**Structural self-modeling evaluation** — If you give a model a second model that predicts its own internal states (a "self-model"), the library evaluates how good that self-modeling is: does it actually predict its own state? Does its stated uncertainty match real errors? Does it know what it doesn't know? These are measurable engineering properties, not philosophical claims.
+
+**Saliency and uncertainty** — Per-input-dimension importance scoring via gradients. MC Dropout uncertainty quantification. All integrated into the same observer abstraction.
+
+### Where it sits in the tool stack
+
+It's not a training framework. It sits *on top* of PyTorch, sklearn, or any callable:
+
+```
+Training frameworks (PyTorch, JAX, sklearn)
+    ↓ produce models
+RO Framework wraps them as Observers
+    ↓ provides
+Graded knowledge assessment · Calibration auditing
+Structural self-modeling evaluation · Saliency analysis
+Paired observation history · Uncertainty quantification
+```
+
+Closest existing tools: Uncertainty Toolbox (calibration), Captum/SHAP (saliency), sklearn.metrics (evaluation). The RO Framework unifies these through a single observer abstraction with typed input/output dimensions.
+
+### Can it be used on LLMs?
+
+Yes, at the embedding/representation level. You'd wrap a model's encoder or a specific layer, feed token embeddings through `observe()`, and assess whether internal representations reliably track specific input features. This is useful for:
+
+- **Probing**: Does layer N "know" about sentiment? Factuality? You get `(correlation, bias, noise, calibration)` instead of just a probe accuracy number.
+- **Calibration auditing**: Are the model's confidence scores actually calibrated?
+- **Comparing fine-tuned variants**: Same base model, different fine-tunes — which one has stronger/more biased knowledge of a particular feature?
+
+It doesn't work on raw text — you need to pick a numeric representation layer. It's a research tool for interpretability, not a drop-in LLM evaluator.
 
 ## Installation
 
@@ -62,7 +92,7 @@ for i in range(50):
     observer.observe(ext)
 
 assessment = observer.assess_knowledge(input_dofs[0])
-print(f"Knowledge type: {assessment.knowledge_type}")
+print(f"Knowledge type: {assessment.knowledge_type}")  # "strong", "weak", "false", "uncertain"
 print(f"Correlation: {assessment.correlation:.3f}")
 print(f"Calibration: {assessment.calibration:.3f}")
 ```
@@ -80,13 +110,16 @@ observer = wrap_torch_model(
     model=world_nn,
     input_dofs=input_dofs,
     output_dofs=output_dofs,
-    self_model=self_nn,     # makes it conscious
-    name="conscious_ai",
+    self_model=self_nn,     # adds self-modeling capability
+    name="self_aware_model",
     use_dropout_uncertainty=True,
 )
 
-print(f"Is conscious: {observer.is_conscious()}")
-print(f"Recursive depth: {observer.recursive_depth()}")
+# Evaluate self-modeling quality
+metrics = observer.get_consciousness_metrics()
+print(f"Self-accuracy: {metrics.self_accuracy:.3f}")
+print(f"Calibration error: {metrics.calibration_error:.3f}")
+print(f"Limitation awareness: {metrics.limitation_awareness:.3f}")
 ```
 
 ## Project Structure
@@ -115,7 +148,7 @@ src/ro_framework/
 
 ### Knowledge Assessment — `K(d_ext) = (ρ, ε, σ, C)`
 
-The library's unique contribution: graded, observer-relative knowledge. After observation history accumulates, assess how well the observer tracks any external DoF:
+Graded, observer-relative knowledge. After observation history accumulates, assess how well the observer tracks any external DoF:
 
 - **ρ** (correlation): How strongly an internal DoF tracks the external DoF
 - **ε** (systematic_error): Consistent bias in the mapping
@@ -124,9 +157,9 @@ The library's unique contribution: graded, observer-relative knowledge. After ob
 
 Knowledge is classified as `"strong"`, `"weak"`, `"false"`, or `"uncertain"`.
 
-### Structural Consciousness Evaluation
+### Structural Self-Modeling Evaluation
 
-Consciousness is defined structurally: recursive self-modeling (internal → internal mapping) with the same architectural type as the world model. The evaluator measures:
+A model with a self-model (internal → internal mapping) is evaluated on:
 
 - **Self-accuracy**: How well the self-model predicts actual internal states
 - **Architectural similarity**: Structural comparison of world and self models
@@ -140,7 +173,7 @@ Every `observe()` call records an `ObservationPair(external_state, internal_stat
 
 ### PyTorch Integration
 
-- `TorchNeuralMapping`: Wraps `nn.Module` with automatic state ↔ tensor conversion
+- `TorchNeuralMapping`: Wraps `nn.Module` with automatic state <-> tensor conversion
 - `TorchObserver`: Batched inference, gradient-based saliency, MC Dropout uncertainty
 - `create_mlp()`: Quick MLP construction with dropout and batch norm options
 
