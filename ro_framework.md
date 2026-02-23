@@ -2,9 +2,9 @@
 ## From Fundamental Reality to Conscious AI
 
 Disclaimers: 
-- The choice of eternalism as a philosophical starting position is not based on belief but utility, even if you generally reject eternalism the framework might still provide useful insights.
-- This is not attempting to be "Theory of Everything", but a framework that can account for and describe previously incompatible structures, including irrational structures like dreams for example.
-- Any strong claims this document might appear to make are not to be taken as a literal description of reality, but simply as a model, descriptive lense.
+- The choice of eternalism as a philosophical starting position is not based on belief but utility, even if you generally reject eternalism, the framework might still provide useful insights.
+- This is not attempting to be a "Theory of Everything", but a framework that can account for and describe previously incompatible structures, including irrational structures like dreams for example.
+- Any strong claims this document might appear to make are not to be taken as a literal description of reality, but simply as a model, a descriptive lense.
 - The intended value is primarily architectural: a principled stance on self-models, uncertainty, multimodal integration, and recursive depth for AI system design.
 - We acknowledge the word "consciousness" is loaded term, and here we define it structurally and claim nothing about phenomenal experience.
 ---
