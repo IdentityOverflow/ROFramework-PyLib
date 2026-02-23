@@ -7,6 +7,7 @@ A Python library for wrapping any model as an **Observer** and asking structured
 Most ML tools focus on *training* models. This library focuses on *understanding* them after the fact.
 
 **Graded knowledge assessment** — Go beyond accuracy. When you wrap a model and feed it data, the library tracks paired (input, output) history and computes a four-dimensional knowledge profile:
+
 - Is the model's internal state *correlated* with the input? (not just "right or wrong")
 - Is there *systematic bias*? (consistently wrong in one direction)
 - How *noisy* is the mapping? (inconsistent outputs for similar inputs)
