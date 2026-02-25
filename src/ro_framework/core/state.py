@@ -265,6 +265,29 @@ class State:
 
         return cls(values=values)
 
+    def to_dict(self) -> dict:
+        """Serialize to a JSON-compatible dictionary.
+
+        Returns:
+            Dict with ``dofs`` (list of DoF dicts) and ``values`` (list of values,
+            same order as ``dofs``).
+        """
+        dofs_list = []
+        vals_list = []
+        for dof, value in self._values.items():
+            dofs_list.append(dof.to_dict())
+            vals_list.append(value)
+        return {"dofs": dofs_list, "values": vals_list}
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "State":
+        """Reconstruct a State from its serialized dictionary."""
+        values = {}
+        for dof_dict, val in zip(d["dofs"], d["values"]):
+            dof = DoF.from_dict(dof_dict)
+            values[dof] = val
+        return cls(values=values)
+
     def __repr__(self) -> str:
         """String representation of state."""
         dof_strs = [f"{dof.name}={value}" for dof, value in self._values.items()]

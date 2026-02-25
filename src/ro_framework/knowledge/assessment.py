@@ -133,6 +133,11 @@ def compute_knowledge(
     ext_norm = (ext_arr - ext_arr.mean()) / ext_std if ext_std > 1e-12 else ext_arr - ext_arr.mean()
     int_norm = (int_arr - int_arr.mean()) / int_std if int_std > 1e-12 else int_arr - int_arr.mean()
 
+    # Align sign: if the best match is negatively correlated (inverse mapping),
+    # flip internal values so residuals measure genuine bias, not sign mismatch.
+    if best_corr < 0:
+        int_norm = -int_norm
+
     residuals = int_norm - ext_norm
     systematic_error = float(np.mean(residuals))
     random_error = float(np.std(residuals))

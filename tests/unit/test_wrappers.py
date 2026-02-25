@@ -114,6 +114,44 @@ class TestWrapCallable:
 
         assert obs.know(in_dofs[0], threshold=0.7)
 
+    def test_observe_batch(self):
+        """observe_batch uses vectorized path and logs all pairs."""
+        in_dofs = create_dofs_for_vector(2, prefix="in", pole_negative=-10.0, pole_positive=10.0)
+        out_dofs = create_dofs_for_vector(2, prefix="out", pole_negative=-10.0, pole_positive=10.0)
+        obs = wrap_callable(lambda x: x, in_dofs, out_dofs)
+
+        rng = np.random.default_rng(42)
+        states = [
+            State(values={d: float(rng.uniform(-5, 5)) for d in in_dofs})
+            for _ in range(10)
+        ]
+        results = obs.observe_batch(states)
+        assert len(results) == 10
+        assert len(obs.observation_log) == 10
+
+    def test_observe_batch_matches_sequential(self):
+        """Batch and sequential observe produce equivalent results."""
+        in_dofs = create_dofs_for_vector(2, prefix="in", pole_negative=-10.0, pole_positive=10.0)
+        out_dofs = create_dofs_for_vector(2, prefix="out", pole_negative=-10.0, pole_positive=10.0)
+
+        rng = np.random.default_rng(99)
+        states = [
+            State(values={d: float(rng.uniform(-5, 5)) for d in in_dofs})
+            for _ in range(5)
+        ]
+
+        # Sequential
+        obs_seq = wrap_callable(lambda x: x, in_dofs, out_dofs)
+        seq_results = [obs_seq.observe(s) for s in states]
+
+        # Batch
+        obs_batch = wrap_callable(lambda x: x, in_dofs, out_dofs)
+        batch_results = obs_batch.observe_batch(states)
+
+        for s, b in zip(seq_results, batch_results):
+            for d in out_dofs:
+                assert abs(s.get_value(d) - b.get_value(d)) < 1e-6
+
 
 # ---------------------------------------------------------------------------
 # wrap_torch_model

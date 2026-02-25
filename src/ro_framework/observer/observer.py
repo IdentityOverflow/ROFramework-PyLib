@@ -10,8 +10,10 @@ An observer is a configuration within the Block Universe characterized by:
 O = (B, M, R, Mem)
 """
 
+import json
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 
@@ -31,6 +33,21 @@ class ObservationPair:
     external_state: State
     internal_state: State
     timestamp: float
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "external_state": self.external_state.to_dict(),
+            "internal_state": self.internal_state.to_dict(),
+            "timestamp": self.timestamp,
+        }
+
+    @staticmethod
+    def from_dict(d: Dict[str, Any]) -> "ObservationPair":
+        return ObservationPair(
+            external_state=State.from_dict(d["external_state"]),
+            internal_state=State.from_dict(d["internal_state"]),
+            timestamp=d["timestamp"],
+        )
 
 
 class ObservationLog:
@@ -82,6 +99,19 @@ class ObservationLog:
 
     def clear(self) -> None:
         self._pairs.clear()
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "capacity": self.capacity,
+            "pairs": [p.to_dict() for p in self._pairs],
+        }
+
+    @staticmethod
+    def from_dict(d: Dict[str, Any]) -> "ObservationLog":
+        log = ObservationLog(capacity=d["capacity"])
+        for p in d["pairs"]:
+            log.append(ObservationPair.from_dict(p))
+        return log
 
 
 @dataclass
@@ -136,8 +166,26 @@ class Observer:
 
         Returns:
             Internal state with values on internal DoFs.
+
+        Raises:
+            ValueError: If external_state is missing declared external DoFs,
+                or if the world model output is missing declared internal DoFs.
         """
+        missing_ext = [d for d in self.external_dofs if external_state.get_value(d) is None]
+        if missing_ext:
+            raise ValueError(
+                f"External state missing declared DoFs: {[d.name for d in missing_ext]}"
+            )
+
         internal_state = self.world_model(external_state)
+
+        missing_int = [d for d in self.internal_dofs if internal_state.get_value(d) is None]
+        if missing_int:
+            raise ValueError(
+                f"World model output missing declared internal DoFs: "
+                f"{[d.name for d in missing_int]}"
+            )
+
         self.internal_state = internal_state
 
         self.observation_log.append(ObservationPair(
@@ -147,6 +195,53 @@ class Observer:
         ))
 
         return internal_state
+
+    def observe_batch(self, external_states: List[State]) -> List[State]:
+        """Observe a batch of external states.
+
+        If the world model supports ``batch_call`` (e.g. ``_CallableMapping``),
+        a single vectorized call is made. Otherwise falls back to sequential
+        ``observe()`` calls.
+
+        Args:
+            external_states: List of external States to observe.
+
+        Returns:
+            List of internal States (each also logged in observation_log).
+        """
+        if not external_states:
+            return []
+
+        if not hasattr(self.world_model, "batch_call"):
+            return [self.observe(s) for s in external_states]
+
+        # Validate external DoFs on all inputs
+        for s in external_states:
+            missing_ext = [d for d in self.external_dofs if s.get_value(d) is None]
+            if missing_ext:
+                raise ValueError(
+                    f"External state missing declared DoFs: {[d.name for d in missing_ext]}"
+                )
+
+        internal_states = self.world_model.batch_call(external_states)
+
+        # Validate and log each pair
+        results: List[State] = []
+        for ext_state, int_state in zip(external_states, internal_states):
+            missing_int = [d for d in self.internal_dofs if int_state.get_value(d) is None]
+            if missing_int:
+                raise ValueError(
+                    f"World model output missing declared internal DoFs: "
+                    f"{[d.name for d in missing_int]}"
+                )
+            self.internal_state = int_state
+            self.observation_log.append(ObservationPair(
+                external_state=ext_state,
+                internal_state=int_state,
+                timestamp=float(len(self.observation_log)),
+            ))
+            results.append(int_state)
+        return results
 
     def self_observe(self) -> Optional[State]:
         """Recursive self-modeling: map internal DoFs to internal DoFs.
@@ -393,6 +488,102 @@ class Observer:
 
         evaluator = ConsciousnessEvaluator(self)
         return evaluator.evaluate(test_states)
+
+    # ------------------------------------------------------------------
+    # Serialization
+    # ------------------------------------------------------------------
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize observer metadata, DoFs, resolution, and observation log.
+
+        The world_model and self_model are NOT serialized (callables/models
+        cannot be reliably serialized). They must be re-supplied on load.
+        """
+        return {
+            "name": self.name,
+            "internal_dofs": [d.to_dict() for d in self.internal_dofs],
+            "external_dofs": [d.to_dict() for d in self.external_dofs],
+            "resolution": {d.name: v for d, v in self.resolution.items()},
+            "temporal_dof": self.temporal_dof.to_dict() if self.temporal_dof else None,
+            "log_capacity": self.log_capacity,
+            "observation_log": self.observation_log.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(
+        cls,
+        d: Dict[str, Any],
+        world_model: MappingFunction,
+        self_model: Optional[MappingFunction] = None,
+    ) -> "Observer":
+        """Reconstruct an Observer from a serialized dictionary.
+
+        Args:
+            d: Dictionary from ``to_dict()``.
+            world_model: The world model mapping (must be re-supplied).
+            self_model: Optional self-model mapping.
+
+        Returns:
+            Reconstructed Observer with restored observation history.
+        """
+        internal_dofs = [DoF.from_dict(dd) for dd in d["internal_dofs"]]
+        external_dofs = [DoF.from_dict(dd) for dd in d["external_dofs"]]
+
+        # Rebuild resolution dict keyed by the reconstructed DoF objects
+        dof_by_name = {dof.name: dof for dof in internal_dofs}
+        resolution = {dof_by_name[name]: val for name, val in d["resolution"].items()
+                      if name in dof_by_name}
+
+        temporal_dof = DoF.from_dict(d["temporal_dof"]) if d.get("temporal_dof") else None
+
+        obs = cls(
+            name=d["name"],
+            internal_dofs=internal_dofs,
+            external_dofs=external_dofs,
+            world_model=world_model,
+            self_model=self_model,
+            resolution=resolution,
+            temporal_dof=temporal_dof,
+            log_capacity=d.get("log_capacity", 1000),
+        )
+
+        # Restore observation log
+        obs.observation_log = ObservationLog.from_dict(d["observation_log"])
+
+        return obs
+
+    def save(self, path: Union[str, Path]) -> None:
+        """Save observer to a JSON file.
+
+        The world_model and self_model are NOT saved. They must be
+        re-supplied when loading via ``Observer.load()``.
+
+        Args:
+            path: File path to write to.
+        """
+        with open(path, "w") as f:
+            json.dump(self.to_dict(), f, indent=2)
+
+    @classmethod
+    def load(
+        cls,
+        path: Union[str, Path],
+        world_model: MappingFunction,
+        self_model: Optional[MappingFunction] = None,
+    ) -> "Observer":
+        """Load observer from a JSON file.
+
+        Args:
+            path: File path to read from.
+            world_model: The world model mapping (must be re-supplied).
+            self_model: Optional self-model mapping.
+
+        Returns:
+            Reconstructed Observer with restored observation history.
+        """
+        with open(path) as f:
+            d = json.load(f)
+        return cls.from_dict(d, world_model=world_model, self_model=self_model)
 
     # ------------------------------------------------------------------
     # Repr

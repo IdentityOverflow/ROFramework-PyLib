@@ -293,16 +293,22 @@ class TestObserver:
         external_dof = PolarDoF(name="external")
         internal_dof = PolarDoF(name="internal")
 
-        class SimpleMapping:
+        class WorldMapping:
             def __call__(self, state: State) -> State:
-                return state
+                val = state.get_value(external_dof)
+                return State(values={internal_dof: val if val is not None else 0.0})
+
+        class SelfMapping:
+            def __call__(self, state: State) -> State:
+                val = state.get_value(internal_dof)
+                return State(values={internal_dof: val if val is not None else 0.0})
 
         # Observer without self-model
         observer1 = Observer(
             name="unconscious",
             internal_dofs=[internal_dof],
             external_dofs=[external_dof],
-            world_model=SimpleMapping(),
+            world_model=WorldMapping(),
             self_model=None,
         )
         assert not observer1.is_conscious()
@@ -312,8 +318,8 @@ class TestObserver:
             name="conscious",
             internal_dofs=[internal_dof],
             external_dofs=[external_dof],
-            world_model=SimpleMapping(),
-            self_model=SimpleMapping(),
+            world_model=WorldMapping(),
+            self_model=SelfMapping(),
         )
         # Feed observations so the behavioral evaluator has data
         for i in range(10):
@@ -325,16 +331,22 @@ class TestObserver:
         external_dof = PolarDoF(name="external")
         internal_dof = PolarDoF(name="internal")
 
-        class SimpleMapping:
+        class WorldMapping:
             def __call__(self, state: State) -> State:
-                return state
+                val = state.get_value(external_dof)
+                return State(values={internal_dof: val if val is not None else 0.0})
+
+        class SelfMapping:
+            def __call__(self, state: State) -> State:
+                val = state.get_value(internal_dof)
+                return State(values={internal_dof: val if val is not None else 0.0})
 
         # No self-model: depth 0
         observer1 = Observer(
             name="depth0",
             internal_dofs=[internal_dof],
             external_dofs=[external_dof],
-            world_model=SimpleMapping(),
+            world_model=WorldMapping(),
             self_model=None,
         )
         assert observer1.recursive_depth() == 0
@@ -344,8 +356,8 @@ class TestObserver:
             name="depth1",
             internal_dofs=[internal_dof],
             external_dofs=[external_dof],
-            world_model=SimpleMapping(),
-            self_model=SimpleMapping(),
+            world_model=WorldMapping(),
+            self_model=SelfMapping(),
         )
         assert observer2.recursive_depth() == 1
 
@@ -415,3 +427,44 @@ class TestObserver:
         repr_str = repr(observer)
         assert "test_observer" in repr_str
         assert "Observer" in repr_str
+
+    def test_observe_rejects_missing_external_dofs(self) -> None:
+        """observe() raises ValueError when input is missing declared external DoFs."""
+        external_dof = PolarDoF(name="external")
+        other_dof = PolarDoF(name="other")
+        internal_dof = PolarDoF(name="internal")
+
+        class WorldMapping:
+            def __call__(self, state: State) -> State:
+                return State(values={internal_dof: 0.0})
+
+        observer = Observer(
+            name="test",
+            internal_dofs=[internal_dof],
+            external_dofs=[external_dof],
+            world_model=WorldMapping(),
+        )
+
+        with pytest.raises(ValueError, match="External state missing declared DoFs"):
+            observer.observe(State(values={other_dof: 1.0}))
+
+    def test_observe_rejects_missing_internal_dofs(self) -> None:
+        """observe() raises ValueError when world model output misses internal DoFs."""
+        external_dof = PolarDoF(name="external")
+        internal_dof = PolarDoF(name="internal")
+        wrong_dof = PolarDoF(name="wrong")
+
+        class BrokenMapping:
+            def __call__(self, state: State) -> State:
+                # Returns a State with the wrong DoF
+                return State(values={wrong_dof: 42.0})
+
+        observer = Observer(
+            name="test",
+            internal_dofs=[internal_dof],
+            external_dofs=[external_dof],
+            world_model=BrokenMapping(),
+        )
+
+        with pytest.raises(ValueError, match="World model output missing declared internal DoFs"):
+            observer.observe(State(values={external_dof: 1.0}))

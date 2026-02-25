@@ -59,7 +59,12 @@ def create_dofs_for_vector(
 # ---------------------------------------------------------------------------
 
 class _CallableMapping:
-    """Thin mapping adapter: wraps ``fn(np.ndarray) -> np.ndarray``."""
+    """Thin mapping adapter: wraps ``fn(np.ndarray) -> np.ndarray``.
+
+    Supports both single-state calls and batched calls. For batched mode,
+    the wrapped function receives an (N, D_in) array and must return an
+    (N, D_out) array.
+    """
 
     def __init__(
         self,
@@ -75,6 +80,23 @@ class _CallableMapping:
         vec_in = state.to_vector(self.input_dofs)
         vec_out = np.asarray(self.fn(vec_in), dtype=np.float64)
         return State.from_vector(vec_out, self.output_dofs)
+
+    def batch_call(self, states: List[State]) -> List[State]:
+        """Vectorized batch call: single ``fn`` invocation on (N, D_in) matrix.
+
+        Args:
+            states: List of external States.
+
+        Returns:
+            List of internal States, one per input.
+        """
+        mat_in = np.stack([s.to_vector(self.input_dofs) for s in states])
+        mat_out = np.asarray(self.fn(mat_in), dtype=np.float64)
+        if mat_out.ndim == 1:
+            # fn collapsed batch dim (single output) — shouldn't happen
+            # but handle gracefully
+            mat_out = mat_out.reshape(1, -1)
+        return [State.from_vector(mat_out[i], self.output_dofs) for i in range(len(states))]
 
 
 def wrap_callable(

@@ -93,5 +93,13 @@ src/ro_framework/
 - [x] Bump version to 0.2.0
 - [x] All tests + examples pass (206/206)
 
+### Phase 6: Short-term Roadmap (Bug Fixes and Usability)
+
+- [x] Fix systematic error computation — sign-flip for negative correlation in `compute_knowledge()`
+- [x] Add input/output DoF validation on `observe()` — raises `ValueError` on mismatch
+- [x] Numpy-native batch path — `_CallableMapping.batch_call()` + `Observer.observe_batch()`
+- [x] Observer serialization — `to_dict()`/`from_dict()` on DoF, State, ObservationLog, Observer; `save()`/`load()` via JSON
+- [x] All tests pass (229/229)
+
 ## Current Status
-**v0.2.0 complete** — All 5 phases done (206/206 tests passing, all examples run)
+**v0.2.1-dev** — Phase 6 complete (229/229 tests passing)

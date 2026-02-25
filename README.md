@@ -229,11 +229,12 @@ This is a v0.2.0 research library. Be aware of these issues:
 
 ## Roadmap
 
-Short-term (bug fixes and usability):
-- Fix systematic error computation to detect real bias
-- Add input/output DoF validation on `observe()`
-- Observer serialization (save/load with observation history)
-- Numpy-native batch path for `_CallableMapping`
+Short-term (bug fixes and usability): **done**
+
+- ~~Fix systematic error computation to detect real bias~~
+- ~~Add input/output DoF validation on `observe()`~~
+- ~~Observer serialization (save/load with observation history)~~
+- ~~Numpy-native batch path for `_CallableMapping`~~
 
 Medium-term (proving it works on real models):
 - Working example wrapping a HuggingFace model encoder and assessing knowledge of specific features

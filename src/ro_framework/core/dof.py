@@ -86,6 +86,53 @@ class DoF(ABC, Generic[T]):
         """
         pass
 
+    @abstractmethod
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialize this DoF to a JSON-compatible dictionary."""
+        pass
+
+    @staticmethod
+    def from_dict(d: Dict[str, Any]) -> "DoF":
+        """Reconstruct a DoF from its serialized dictionary.
+
+        Dispatches to the correct subclass based on the ``type`` key.
+        """
+        dof_type = d["type"]
+        if dof_type == "PolarDoF":
+            return PolarDoF(
+                name=d["name"],
+                description=d.get("description", ""),
+                pole_negative=d.get("pole_negative", -np.inf),
+                pole_positive=d.get("pole_positive", np.inf),
+                polar_type=PolarDoFType(d.get("polar_type", "continuous_real")),
+                resolution=d.get("resolution", 1e-6),
+            )
+        elif dof_type == "ScalarDoF":
+            return ScalarDoF(
+                name=d["name"],
+                description=d.get("description", ""),
+                min_value=d.get("min_value", 0.0),
+                max_value=d.get("max_value", np.inf),
+                resolution=d.get("resolution", 1e-6),
+            )
+        elif dof_type == "CategoricalDoF":
+            return CategoricalDoF(
+                name=d["name"],
+                description=d.get("description", ""),
+                categories=set(d["categories"]),
+                weights=d.get("weights"),
+            )
+        elif dof_type == "DerivedDoF":
+            constituents = [DoF.from_dict(c) for c in d["constituent_dofs"]]
+            return DerivedDoF(
+                name=d["name"],
+                description=d.get("description", ""),
+                constituent_dofs=constituents,
+                derivation_function=None,  # cannot serialize callables
+            )
+        else:
+            raise ValueError(f"Unknown DoF type: {dof_type}")
+
     def __hash__(self) -> int:
         """Make DoFs hashable by name for use in dicts/sets."""
         return hash(self.name)
@@ -210,6 +257,17 @@ class PolarDoF(DoF[float]):
             # Inverse of linear normalization
             return (normalized_value + 1) / 2 * (self.pole_positive - self.pole_negative) + self.pole_negative
 
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": "PolarDoF",
+            "name": self.name,
+            "description": self.description,
+            "pole_negative": self.pole_negative,
+            "pole_positive": self.pole_positive,
+            "polar_type": self.polar_type.value,
+            "resolution": self.resolution,
+        }
+
     def gradient(self, v1: float, v2: float) -> float:
         """
         Compute gradient (directional difference) from v1 to v2.
@@ -274,6 +332,16 @@ class ScalarDoF(DoF[float]):
             Absolute distance |v1 - v2|
         """
         return abs(v1 - v2)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": "ScalarDoF",
+            "name": self.name,
+            "description": self.description,
+            "min_value": self.min_value,
+            "max_value": self.max_value,
+            "resolution": self.resolution,
+        }
 
     def normalize(self, value: float) -> float:
         """
@@ -373,6 +441,15 @@ class CategoricalDoF(DoF[str]):
         """
         return 0.0 if v1 == v2 else 1.0
 
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": "CategoricalDoF",
+            "name": self.name,
+            "description": self.description,
+            "categories": sorted(self.categories),
+            "weights": self.weights,
+        }
+
     def to_one_hot(self, value: str) -> np.ndarray:
         """
         Convert category to one-hot encoding.
@@ -456,6 +533,14 @@ class DerivedDoF(DoF[float]):
     def distance(self, v1: float, v2: float) -> float:
         """Absolute distance between derived values."""
         return abs(v1 - v2)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "type": "DerivedDoF",
+            "name": self.name,
+            "description": self.description,
+            "constituent_dofs": [d.to_dict() for d in self.constituent_dofs],
+        }
 
     def compute(self, **kwargs: Any) -> float:
         """
