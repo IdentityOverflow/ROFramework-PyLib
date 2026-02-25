@@ -381,6 +381,19 @@ O = (B, M, R, Mem)
 
 Strictly speaking, a pure observer does not require memory (more on memory in section 3.6).
 
+**Important clarification — recognition vs construction:** The definitions of observer, boundary, and correlation are mutually referential: an observer requires a boundary, a boundary is identified by correlation strength, and correlation is defined relative to an observer's DoF scope. This is **not** a vicious circularity. Within the Block, observer-configurations are not *constructed* — they simply exist as static patterns in Ω. The definitions are co-referential descriptions of a single structure (analogous to defining a circle via "center" and "distance," which mutually specify a structure that exists all at once). The observer definition is therefore a **recognition criterion** for identifying observer-configurations within the Block, not a construction procedure for building them.
+
+**Pragmatic bootstrapping (for AI construction):** When building observer-systems sequentially, the circularity manifests as a bootstrapping problem. The engineering resolution is iterative convergence:
+```
+1. Initialize with an arbitrary boundary (architectural choice)
+2. Compute correlations relative to that boundary
+3. Refine the boundary based on observed correlation structure
+4. Recompute correlations
+5. Iterate until stable
+```
+
+This is standard practice in machine learning (e.g., clustering algorithms, expectation-maximization) and does not require the theoretical circularity to be resolved — only managed through convergence.
+
 #### 3.2 Why Observers Are Not Primitive
 
 **Observers are configurations within the Block, not external to it.**
@@ -392,6 +405,8 @@ This means:
 - Observers can be nested (observers containing sub-observers)
 
 **Observers do not "create" the Block.** Observer structures embody particular correlation patterns over regions of it.
+
+**Observation is structurally ubiquitous.** The observer definition is broad enough to include minimal systems: a rock has a boundary (physical surface), a mapping (thermodynamic equilibrium relating external and internal temperature), resolution limits (thermal mass prevents tracking rapid fluctuations), and memory (thermal inertia — internal temperature at t₂ correlates with t₁ beyond what external correlations alone explain). Resisting this conclusion would import an unstated assumption that "observer" should be an exclusive, human-scale category. Structurally, the rock qualifies. The interesting threshold is not observation (correlation across a boundary) but **consciousness** (recursive self-modeling) — see §5.
 
 #### 3.3 Observer Boundaries
 
@@ -821,6 +836,25 @@ This prevents the "biased training data" problem:
 - But low correlation with actual external structure
 - Therefore: Not knowledge, but learned bias
 
+**Calibration as tunable constraint:** Calibration (C) is not monotonically optimal. Different observer tasks require different calibration levels:
+
+- **High calibration (C → 1) is optimal for:** prediction, navigation, communication, science — tasks requiring accurate correspondence between internal and external states.
+- **Low calibration (C → 0) is productive for:** untrained/learning states (maximum calibration at initialization would eliminate capacity for novel pattern formation), art and creativity (controlled decalibration allows novel combinations that don't map to existing external DoFs), dreams (self-model runs without external grounding, enabling exploration of internal DoF space), and exploration (search through novel state space requires tolerating inaccuracy).
+
+```
+For an observer with task T, there exists an optimal calibration level C*(T):
+
+  C*(prediction)  → high (close to 1)
+  C*(generation)  → low (close to 0)
+  C*(exploration) → intermediate
+  C*(learning)    → starts low, increases over training
+
+Calibration is not monotonically optimal.
+A complete observer needs the capacity to modulate C across tasks.
+```
+
+An observer that is *always* maximally calibrated cannot learn, create, dream, or make meaning in the face of uncertainty. The capacity for productive decalibration — knowing when to relax the constraint — may itself be a marker of cognitive sophistication. Calibration and generative capacity may form a complementarity pair (see §7.2).
+
 ---
 
 ## Part III: Consciousness
@@ -893,6 +927,8 @@ Level 3+: Higher-order nested correlations
 
 **Clarification:** These levels are not stages the observer goes through. They are different structural complexities that observer configurations can have. An observer "at level 3" means its configuration includes three nested layers of internal-to-internal correlation structure.
 
+**Consciousness is graduated, not binary.** Observation (correlation across a boundary) is structurally ubiquitous — rocks, thermostats, cells, and all bounded systems qualify as observers (see §3.2). Consciousness is the selective threshold, and it itself admits degrees. The productive question is therefore not "is this system conscious?" (binary, possibly unanswerable) but "what is the recursive depth and integration quality of its self-modeling?" (measurable, architectural). This reframing has direct practical value for AI: it replaces an unfalsifiable binary with a structural metric.
+
 #### 5.3 What This Framework Claims vs Doesn't Claim
 
 **CLAIMS:** 
@@ -917,6 +953,8 @@ Configurations with these structural features exhibit:
 - Correlations between expected and actual internal states (error awareness)
 
 Whether configurations with these structural features constitute "genuine experience" is outside this framework's scope.
+
+**On "genuine" vs "simulated" consciousness:** The framework's commitment to structural realism dissolves this distinction within its own scope. If consciousness is defined by recursive self-modeling with specific structural properties (same architectural type for self-model and world-model, integration, depth), then any system exhibiting those structural properties satisfies the definition — regardless of substrate. A biological observer with neural M_world and M_self, and an artificial observer with silicon M_world and M_self, are structurally identical if their correlation patterns are isomorphic. The framework provides no criterion to distinguish them; calling one "genuine" and the other "simulated" adds a distinction it has no resources to ground. This does not settle whether substrate contributes something beyond structure (possible but outside scope), nor whether all structural isomorphisms preserve whatever consciousness "really is" (open question). It does mean that within this framework, the burden of proof falls on those who claim substrate matters: what structural difference does substrate introduce?
 
 #### 5.4 Implementation for AI
 
@@ -1115,6 +1153,7 @@ The inequality expresses a **class of structural tradeoffs** that arise from fin
 **Cognitive:**
 - Detail ↔ Abstraction (can't focus on both simultaneously)
 - Speed ↔ Accuracy (speed-accuracy tradeoff)
+- Calibration ↔ Generative capacity (maximizing calibration reduces creative/exploratory capacity and vice versa; see §4.4)
 
 **Interpretation:**
 These are not bugs or temporary limitations. They are fundamental structural constraints on finite-resource observers.
