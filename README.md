@@ -213,17 +213,9 @@ python examples/03_knowledge_assessment.py
 
 ## Known Limitations
 
-This is a v0.2.0 research library. Be aware of these issues:
-
-**Systematic error detection is broken.** The knowledge assessment computes bias (`ε`) on z-scored residuals. Since z-scoring makes both series zero-mean, `mean(residuals)` is always ~0 regardless of actual bias. The `"false"` knowledge type cannot currently be triggered. A model with large systematic offset will still be classified as `"strong"` knowledge. This needs to be reworked to use scale-normalized (not zero-mean) residuals.
-
-**No input validation on observe().** The world model is any callable — there's no check that its output State actually contains the declared `internal_dofs`. Silent mismatches produce confusing downstream results (empty knowledge assessments, zero-score consciousness metrics) with no error message.
-
-**No serialization.** You can't save an Observer with its observation history and reload it later. Any workflow that spans multiple sessions requires re-wrapping and re-observing.
+This is a v0.2.1-dev research library. Be aware of these issues:
 
 **Only tested on toy models.** All examples and tests use small MLPs, identity mappings, and synthetic data. There is no validated example of wrapping a real pre-trained model (ResNet, BERT, etc.) and producing meaningful knowledge assessments.
-
-**Batch path is PyTorch-only.** `observe_batch()` does a single forward pass for `TorchNeuralMapping` but falls back to a Python loop for plain callables. Large-scale numpy workflows will be slow.
 
 **Single-observer only.** The theory describes observers observing each other and observer-relative knowledge. The library only supports individual observers — no multi-observer comparison or ensemble analysis.
 
