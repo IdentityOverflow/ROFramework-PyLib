@@ -215,7 +215,9 @@ python examples/03_knowledge_assessment.py
 
 This is a v0.2.1-dev research library. Be aware of these issues:
 
-**Only tested on toy models.** All examples and tests use small MLPs, identity mappings, and synthetic data. There is no validated example of wrapping a real pre-trained model (ResNet, BERT, etc.) and producing meaningful knowledge assessments.
+**Distributed representations require feature extraction.** In real neural networks, interpretable features are not stored in individual neurons — they are directions across many neurons (superposition). The framework assumes each DoF is a single scalar value, which is correct *after* feature extraction but not for raw activations. To wrap a real model, the world_model mapping must include a feature extraction step (e.g., a Sparse Autoencoder or linear probe) that decomposes distributed activations into monosemantic features. See [Anthropic's work on dictionary learning](https://www.anthropic.com/research/mapping-mind-language-model) for the approach this framework is designed to integrate with. Pre-trained SAEs exist for some open models (GPT-2, Pythia, Gemma) but are model-specific and layer-specific — an SAE trained on one model cannot be reused for another.
+
+**Only tested on toy models.** All examples and tests use small MLPs, identity mappings, and synthetic data. There is no validated example of wrapping a real pre-trained model with SAE feature extraction and producing meaningful knowledge assessments.
 
 **Single-observer only.** The theory describes observers observing each other and observer-relative knowledge. The library only supports individual observers — no multi-observer comparison or ensemble analysis.
 
@@ -229,15 +231,19 @@ Short-term (bug fixes and usability): **done**
 - ~~Numpy-native batch path for `_CallableMapping`~~
 
 Medium-term (proving it works on real models):
-- Working example wrapping a HuggingFace model encoder and assessing knowledge of specific features
+
+- SAE integration — load a pre-trained Sparse Autoencoder, compose with model layer as world_model, assess knowledge of SAE features
+- SAE training tools — train SAEs on arbitrary model activations so the framework works with any model, not just those with pre-trained SAEs
+- Working example wrapping a HuggingFace model + SAE and producing meaningful knowledge assessments
 - Training-time integration — knowledge assessment and calibration as loss terms
 - Temporal knowledge dynamics — tracking how knowledge degrades on distribution shift
 
 Longer-term (research directions):
+
 - Multi-observer systems — comparing knowledge across model ensembles
 - Causal vs. correlational knowledge distinction
 - Information-theoretic knowledge bounds given observer resolution and boundary
-- Bridge to mechanistic interpretability (automatic DoF discovery from internal representations)
+- Automatic DoF discovery — using trained SAEs to discover what DoFs a model has learned, rather than specifying them manually
 
 ## Documentation
 

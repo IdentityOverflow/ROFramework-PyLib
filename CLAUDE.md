@@ -101,5 +101,18 @@ src/ro_framework/
 - [x] Observer serialization — `to_dict()`/`from_dict()` on DoF, State, ObservationLog, Observer; `save()`/`load()` via JSON
 - [x] All tests pass (229/229)
 
+### Phase 7: Tightening and Solidification
+
+- [x] Fix CategoricalDoF indexing in `compute_uncertainty()` and `compute_saliency()` — use `dof.vector_dim` for multi-dimensional DoFs
+- [x] Add `DoF.vector_dim` property (base returns 1, CategoricalDoF returns `len(categories)`)
+- [x] Remove unused `typing-extensions` dependency from `pyproject.toml`
+- [x] Document distributed representation / SAE challenge in README Known Limitations
+- [x] Add `examples/06_serialization.py` (save/load workflow)
+- [x] Add `examples/07_wrappers.py` (wrap_callable, wrap_torch_model, batch, knowledge)
+- [x] Make knowledge type thresholds configurable — `KnowledgeAssessment.THRESHOLDS` class variable
+- [x] Make consciousness score weights configurable — `ConsciousnessMetrics.DEFAULT_WEIGHTS` + optional `weights` param
+- [x] Make `Observer.know()` calibration threshold configurable — `min_calibration` parameter
+- [x] All tests pass (231/231)
+
 ## Current Status
-**v0.2.1-dev** — Phase 6 complete (229/229 tests passing)
+**v0.2.1-dev** — Phase 7 complete (231/231 tests passing)

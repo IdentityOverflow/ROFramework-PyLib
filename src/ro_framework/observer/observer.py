@@ -292,6 +292,7 @@ class Observer:
         self,
         external_dof: DoF,
         threshold: float = 0.7,
+        min_calibration: float = 0.4,
         min_samples: int = 10,
     ) -> bool:
         """Check if observer has knowledge of an external DoF.
@@ -301,6 +302,7 @@ class Observer:
         Args:
             external_dof: External DoF to check.
             threshold: Minimum correlation for knowledge.
+            min_calibration: Minimum calibration for knowledge.
             min_samples: Minimum observations required.
 
         Returns:
@@ -309,7 +311,7 @@ class Observer:
         assessment = self.assess_knowledge(external_dof, min_samples)
         if assessment is None:
             return False
-        return assessment.correlation >= threshold and assessment.calibration >= 0.4
+        return assessment.correlation >= threshold and assessment.calibration >= min_calibration
 
     # ------------------------------------------------------------------
     # Uncertainty

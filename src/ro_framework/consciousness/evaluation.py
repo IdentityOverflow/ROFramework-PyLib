@@ -5,8 +5,8 @@ This module evaluates consciousness as a structural property:
 recursive self-modeling with bounded error, not phenomenal experience.
 """
 
-from dataclasses import dataclass
-from typing import Dict, List, Any
+from dataclasses import dataclass, field
+from typing import ClassVar, Dict, List, Any, Optional
 
 import numpy as np
 
@@ -31,11 +31,26 @@ class ConsciousnessMetrics:
     meta_cognitive_capability: float  # Can reason about own reasoning
     limitation_awareness: float  # Knows what it doesn't know
 
-    def consciousness_score(self) -> float:
+    # Default scoring weights — override on the class to change defaults.
+    DEFAULT_WEIGHTS: ClassVar[Dict[str, float]] = {
+        "recursive_depth": 0.20,
+        "self_accuracy": 0.25,
+        "architectural_similarity": 0.15,
+        "calibration": 0.15,
+        "meta_cognitive_capability": 0.15,
+        "limitation_awareness": 0.10,
+    }
+
+    def consciousness_score(self, weights: Optional[Dict[str, float]] = None) -> float:
         """
         Compute overall consciousness score [0, 1].
 
         Combines multiple metrics with weights based on importance.
+
+        Args:
+            weights: Optional dict overriding ``DEFAULT_WEIGHTS``.
+                Keys: recursive_depth, self_accuracy, architectural_similarity,
+                calibration, meta_cognitive_capability, limitation_awareness.
 
         Returns:
             Score from 0 (no consciousness) to 1 (full consciousness)
@@ -43,14 +58,15 @@ class ConsciousnessMetrics:
         if not self.has_self_model:
             return 0.0
 
-        # Weighted combination
+        w = weights or self.DEFAULT_WEIGHTS
+
         score = 0.0
-        score += 0.2 * min(self.recursive_depth / 3.0, 1.0)  # Depth (cap at 3)
-        score += 0.25 * self.self_accuracy  # Accuracy
-        score += 0.15 * self.architectural_similarity  # Similarity
-        score += 0.15 * (1.0 - self.calibration_error)  # Calibration (inverted)
-        score += 0.15 * self.meta_cognitive_capability  # Meta-cognition
-        score += 0.10 * self.limitation_awareness  # Awareness of limits
+        score += w.get("recursive_depth", 0.2) * min(self.recursive_depth / 3.0, 1.0)
+        score += w.get("self_accuracy", 0.25) * self.self_accuracy
+        score += w.get("architectural_similarity", 0.15) * self.architectural_similarity
+        score += w.get("calibration", 0.15) * (1.0 - self.calibration_error)
+        score += w.get("meta_cognitive_capability", 0.15) * self.meta_cognitive_capability
+        score += w.get("limitation_awareness", 0.10) * self.limitation_awareness
 
         return float(np.clip(score, 0.0, 1.0))
 

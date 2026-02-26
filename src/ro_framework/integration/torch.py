@@ -142,11 +142,10 @@ class TorchNeuralMapping(NeuralMapping):
 
         output_idx = 0
         for dof in self.output_dofs:
-            # For now, assume each DoF corresponds to one output dimension
-            # (This is simplified - actual implementation would handle categorical DoFs)
-            std = np.std(samples_array[:, output_idx])
+            dim = dof.vector_dim
+            std = np.mean(np.std(samples_array[:, output_idx : output_idx + dim], axis=0))
             uncertainties[dof] = float(std)
-            output_idx += 1
+            output_idx += dim
 
         # Set back to eval mode
         self.model.eval()
@@ -278,16 +277,24 @@ class TorchObserver(Observer):
         # Forward pass
         output_tensor = mapping.model(input_tensor)
 
-        # Get index of target DoF and backprop
-        target_idx = mapping.output_dofs.index(target_dof)
-        output_tensor[0, target_idx].backward()
+        # Find output index range for target DoF and backprop
+        target_offset = 0
+        for d in mapping.output_dofs:
+            if d is target_dof:
+                break
+            target_offset += d.vector_dim
+        target_dim = target_dof.vector_dim
+        output_tensor[0, target_offset : target_offset + target_dim].sum().backward()
 
         # Extract per-input-DoF gradient magnitudes
         grads = input_tensor.grad.squeeze(0).abs().cpu().numpy()
 
         saliency: Dict[DoF, float] = {}
-        for i, dof in enumerate(self.external_dofs):
-            saliency[dof] = float(grads[i]) if i < len(grads) else 0.0
+        input_idx = 0
+        for dof in self.external_dofs:
+            dim = dof.vector_dim
+            saliency[dof] = float(np.mean(grads[input_idx : input_idx + dim])) if input_idx + dim <= len(grads) else 0.0
+            input_idx += dim
 
         return saliency
 

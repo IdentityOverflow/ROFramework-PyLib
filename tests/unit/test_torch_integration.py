@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from ro_framework.core.dof import PolarDoF, PolarDoFType
+from ro_framework.core.dof import CategoricalDoF, PolarDoF, PolarDoFType
 from ro_framework.core.state import State
 
 # Check if torch is available
@@ -505,6 +505,64 @@ class TestIntegration:
             # Check that we get valid outputs and uncertainties
             assert output_state is not None
             assert len(uncertainties) == len(output_dofs)
+
+
+class TestCategoricalDoFIntegration:
+    """Tests for multi-dimensional DoF handling (CategoricalDoF one-hot)."""
+
+    @pytest.fixture
+    def categorical_setup(self):
+        """Create DoFs with a mix of Polar and Categorical."""
+        input_dofs = [
+            PolarDoF(name="x", pole_negative=-1.0, pole_positive=1.0,
+                     polar_type=PolarDoFType.CONTINUOUS_BOUNDED),
+        ]
+        cat_dof = CategoricalDoF(name="color", categories={"red", "green", "blue"})
+        output_polar = PolarDoF(name="y", pole_negative=-5.0, pole_positive=5.0,
+                                polar_type=PolarDoFType.CONTINUOUS_BOUNDED)
+        output_dofs = [output_polar, cat_dof]
+        # input: 1 dim, output: 1 (polar) + 3 (one-hot) = 4 dims
+        model = nn.Sequential(nn.Linear(1, 8), nn.ReLU(), nn.Linear(8, 4))
+        return input_dofs, output_dofs, model, cat_dof, output_polar
+
+    def test_uncertainty_with_categorical(self, categorical_setup):
+        """MC Dropout uncertainty should handle CategoricalDoF dimensions correctly."""
+        input_dofs, output_dofs, _, cat_dof, output_polar = categorical_setup
+        model = nn.Sequential(nn.Linear(1, 8), nn.ReLU(), nn.Dropout(0.3), nn.Linear(8, 4))
+        mapping = TorchNeuralMapping(
+            name="world", input_dofs=input_dofs, output_dofs=output_dofs,
+            model=model, device="cpu",
+            use_dropout_uncertainty=True, dropout_samples=10,
+        )
+        ext = State(values={input_dofs[0]: 0.5})
+        unc = mapping.compute_uncertainty(ext)
+        assert len(unc) == 2
+        assert output_polar in unc
+        assert cat_dof in unc
+        assert all(v >= 0.0 for v in unc.values())
+
+    def test_saliency_with_categorical(self, categorical_setup):
+        """Saliency should correctly index target DoFs with mixed dimensions."""
+        input_dofs, output_dofs, model, cat_dof, output_polar = categorical_setup
+        mapping = TorchNeuralMapping(
+            name="world", input_dofs=input_dofs, output_dofs=output_dofs,
+            model=model, device="cpu",
+        )
+        observer = TorchObserver(
+            name="t", internal_dofs=output_dofs, external_dofs=input_dofs,
+            world_model=mapping, device="cpu",
+        )
+        ext = State(values={input_dofs[0]: 0.5})
+
+        # Saliency for the polar DoF (offset 0)
+        sal_polar = observer.compute_saliency(ext, output_polar)
+        assert len(sal_polar) == 1
+        assert any(v > 0.0 for v in sal_polar.values())
+
+        # Saliency for the categorical DoF (offset 1, spans 3 dims)
+        sal_cat = observer.compute_saliency(ext, cat_dof)
+        assert len(sal_cat) == 1
+        assert any(v > 0.0 for v in sal_cat.values())
 
 
 if __name__ == "__main__":

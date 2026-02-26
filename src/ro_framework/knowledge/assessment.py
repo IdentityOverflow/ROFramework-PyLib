@@ -9,7 +9,7 @@ Implements the framework's graded knowledge definition (Section 4.4):
 """
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, ClassVar, Dict, List, Optional
 
 import numpy as np
 from scipy.stats import pearsonr
@@ -42,6 +42,15 @@ class KnowledgeAssessment:
     calibration: float
     n_samples: int
 
+    # Classification thresholds — override on the class to change defaults.
+    THRESHOLDS: ClassVar[Dict[str, float]] = {
+        "strong_correlation": 0.7,
+        "strong_max_bias": 0.3,
+        "strong_min_calibration": 0.5,
+        "uncertain_max_correlation": 0.5,
+        "uncertain_min_calibration": 0.5,
+    }
+
     @property
     def knowledge_type(self) -> str:
         """Classify knowledge per framework Section 4.4.
@@ -50,12 +59,21 @@ class KnowledgeAssessment:
         - "false": High ρ but high ε (correlated with wrong thing)
         - "uncertain": Low ρ but correctly calibrated
         - "weak": Everything else
+
+        Thresholds are set via the class-level ``THRESHOLDS`` dict::
+
+            KnowledgeAssessment.THRESHOLDS["strong_correlation"] = 0.8
         """
-        if self.correlation >= 0.7 and abs(self.systematic_error) < 0.3 and self.calibration >= 0.5:
+        t = self.THRESHOLDS
+        if (self.correlation >= t["strong_correlation"]
+                and abs(self.systematic_error) < t["strong_max_bias"]
+                and self.calibration >= t["strong_min_calibration"]):
             return "strong"
-        if self.correlation >= 0.7 and abs(self.systematic_error) >= 0.3:
+        if (self.correlation >= t["strong_correlation"]
+                and abs(self.systematic_error) >= t["strong_max_bias"]):
             return "false"
-        if self.correlation < 0.5 and self.calibration >= 0.5:
+        if (self.correlation < t["uncertain_max_correlation"]
+                and self.calibration >= t["uncertain_min_calibration"]):
             return "uncertain"
         return "weak"
 

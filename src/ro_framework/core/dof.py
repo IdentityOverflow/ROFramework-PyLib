@@ -86,6 +86,15 @@ class DoF(ABC, Generic[T]):
         """
         pass
 
+    @property
+    def vector_dim(self) -> int:
+        """Number of dimensions this DoF occupies in a vector representation.
+
+        Returns 1 for most DoF types. CategoricalDoF overrides this to
+        return ``len(categories)`` (one-hot encoding).
+        """
+        return 1
+
     @abstractmethod
     def to_dict(self) -> Dict[str, Any]:
         """Serialize this DoF to a JSON-compatible dictionary."""
@@ -407,6 +416,11 @@ class CategoricalDoF(DoF[str]):
                 raise ValueError("Weights keys must match categories")
             if not np.isclose(sum(self.weights.values()), 1.0):
                 raise ValueError("Weights must sum to 1.0")
+
+    @property
+    def vector_dim(self) -> int:
+        """One-hot encoding: one dimension per category."""
+        return len(self.categories)
 
     def domain(self) -> Set[str]:
         """Returns the set of valid categories."""
