@@ -114,5 +114,99 @@ src/ro_framework/
 - [x] Make `Observer.know()` calibration threshold configurable — `min_calibration` parameter
 - [x] All tests pass (231/231)
 
+### Phase 8: Training-Time Knowledge Dynamics & Resonance Detection
+
+Motivated by: "On the Mechanism and Dynamics of Modular Addition" (He et al., 2025)
+which shows learning is a resonance selection process — neurons compete, winners are
+determined by initial spectral alignment, and grokking is a phase transition from
+memorization to generalized (resonant) representation. Our K(d_ext) tuple can track
+this process structurally.
+
+#### 8a: Knowledge Trajectory Tracking (solid)
+
+A `KnowledgeTracker` that records K(d_ext) = (ρ, ε, σ, C) over training epochs,
+enabling temporal analysis of how knowledge forms, not just what it is at the end.
+
+- [ ] `knowledge/tracker.py` — `KnowledgeTracker` class
+  - Wraps an Observer, records K(d_ext) at configurable intervals (every N steps/epochs)
+  - Stores time series: `List[Tuple[int, KnowledgeAssessment]]` per external DoF
+  - Provides `trajectory(dof) -> DataFrame-like` of (step, ρ, ε, σ, C, type) over time
+- [ ] Phase transition detection
+  - `detect_grokking(dof)` — find the epoch where knowledge_type jumps from weak/false → strong
+  - `detect_resonance(dof)` — find epochs where ρ is rising but σ is still high (feature locking in, pre-grokking)
+  - `detect_forgetting(dof)` — find epochs where ρ drops (distribution shift, catastrophic forgetting)
+- [ ] Training loop integration
+  - `tracker.step(epoch)` — call after each epoch, automatically runs assess_knowledge on all external DoFs
+  - Works with any training loop (PyTorch, numpy, external)
+  - Serializable (save/load trajectory with observer)
+- [ ] Tests + example: train an MLP on modular addition, show K trajectory through memorization → grokking
+- [ ] All tests pass
+
+#### 8b: Online Feature Discovery (experimental)
+
+Hypothesis: instead of training a full SAE post-hoc, we can discover emerging features
+during training by tracking which directions in activation space are being amplified.
+A direction with growing, stable variance is a candidate monosemantic feature — a
+resonance that's locking in.
+
+- [ ] `integration/activation_tracker.py` — `ActivationTracker` class
+  - PyTorch forward hook that collects activations at a specified layer
+  - Maintains running mean and covariance (incremental, memory-efficient)
+  - Incremental PCA / SVD to find top-K principal directions
+- [ ] `discover_dofs(threshold)` — extract candidate DoFs from tracked activations
+  - Directions with eigenvalue growth above threshold become PolarDoFs
+  - Each discovered DoF has a projection vector (the eigenvector) for extracting values
+  - Returns DoFs + a projection mapping that composes with the model as a world_model
+- [ ] Stability tracking — which directions persist vs. are transient
+  - Compare principal directions across epochs (subspace angle / cosine similarity)
+  - A direction that's been stable for N epochs is a "locked in" feature
+  - Transient directions are noise or memorization artifacts
+- [ ] Tests: train MLP, verify discovered directions correlate with known Fourier features
+- [ ] All tests pass
+
+#### 8c: Knowledge-Guided Training (experimental)
+
+Hypothesis: the K(d_ext) tuple can be used as a training signal, not just a metric.
+If grokking is driven by the competition between loss minimization and regularization
+(weight decay), then selectively increasing regularization pressure on features stuck
+in the memorization phase should accelerate grokking.
+
+- [ ] `KnowledgeLoss` — differentiable loss terms derived from knowledge assessment
+  - Calibration loss: penalize low C (observer doesn't know what it doesn't know)
+  - Correlation reward: encourage high ρ for target DoFs
+  - Bias penalty: penalize high |ε| (systematic distortion)
+- [ ] `AdaptiveRegularizer` — adjusts weight decay per-feature based on K dynamics
+  - Features with high ρ but low C (memorized, not generalized) get increased regularization
+  - Features with high ρ and high C (genuinely learned) get reduced regularization
+  - Hypothesis: this steers the competitive dynamics to favor resonant solutions
+- [ ] Validation experiment: modular addition with and without knowledge-guided training
+  - Measure: epochs to grokking, final knowledge quality, feature emergence speed
+  - Compare: standard training vs. K-guided regularization
+- [ ] Tests + example
+- [ ] All tests pass
+
+#### Phase 8 architecture
+
+```text
+src/ro_framework/
+├── knowledge/
+│   ├── assessment.py          # existing K(d_ext) computation
+│   └── tracker.py             # NEW: KnowledgeTracker, trajectory, phase detection
+├── integration/
+│   ├── torch.py               # existing TorchObserver
+│   ├── wrappers.py            # existing wrap_callable, wrap_torch_model
+│   ├── activation_tracker.py  # NEW: ActivationTracker, discover_dofs (experimental)
+│   └── training.py            # NEW: KnowledgeLoss, AdaptiveRegularizer (experimental)
+```
+
+#### Execution order
+
+1. **8a first** — KnowledgeTracker is pure engineering on top of existing assess_knowledge().
+   No new dependencies, no hypotheses. Proves the temporal analysis works.
+2. **8b second** — ActivationTracker is experimental but grounded in well-known PCA/SVD.
+   Validates whether online feature discovery produces meaningful DoFs.
+3. **8c last** — KnowledgeLoss and AdaptiveRegularizer are the most speculative.
+   Depends on 8a working well. May need iteration on the loss formulation.
+
 ## Current Status
 **v0.2.1-dev** — Phase 7 complete (231/231 tests passing)

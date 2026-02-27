@@ -230,20 +230,20 @@ Short-term (bug fixes and usability): **done**
 - ~~Observer serialization (save/load with observation history)~~
 - ~~Numpy-native batch path for `_CallableMapping`~~
 
-Medium-term (proving it works on real models):
+Medium-term (training-time knowledge dynamics):
 
-- SAE integration — load a pre-trained Sparse Autoencoder, compose with model layer as world_model, assess knowledge of SAE features
-- SAE training tools — train SAEs on arbitrary model activations so the framework works with any model, not just those with pre-trained SAEs
-- Working example wrapping a HuggingFace model + SAE and producing meaningful knowledge assessments
-- Training-time integration — knowledge assessment and calibration as loss terms
-- Temporal knowledge dynamics — tracking how knowledge degrades on distribution shift
+- Knowledge trajectory tracking — record K(d_ext) over training epochs, detect phase transitions (memorization → grokking), resonance (feature locking in), and forgetting
+- Online feature discovery *(experimental)* — track activation covariance during training to find emerging features without post-hoc SAE training. Directions with growing, stable variance are candidate DoFs.
+- Knowledge-guided training *(experimental)* — use K(d_ext) as a training signal. Penalize poor calibration, reward correlation. Hypothesis: selective regularization on memorized features accelerates grokking.
+- SAE integration — load pre-trained SAEs, compose with model layer as world_model
+- SAE training tools — train SAEs on arbitrary model activations for universal model support
 
 Longer-term (research directions):
 
 - Multi-observer systems — comparing knowledge across model ensembles
 - Causal vs. correlational knowledge distinction
 - Information-theoretic knowledge bounds given observer resolution and boundary
-- Automatic DoF discovery — using trained SAEs to discover what DoFs a model has learned, rather than specifying them manually
+- Automatic DoF discovery — using online feature tracking or trained SAEs to discover what DoFs a model has learned, rather than specifying them manually
 
 ## Documentation
 
