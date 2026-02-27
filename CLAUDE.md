@@ -127,20 +127,26 @@ this process structurally.
 A `KnowledgeTracker` that records K(d_ext) = (ρ, ε, σ, C) over training epochs,
 enabling temporal analysis of how knowledge forms, not just what it is at the end.
 
-- [ ] `knowledge/tracker.py` — `KnowledgeTracker` class
+- [x] `knowledge/tracker.py` — `KnowledgeTracker` class
   - Wraps an Observer, records K(d_ext) at configurable intervals (every N steps/epochs)
-  - Stores time series: `List[Tuple[int, KnowledgeAssessment]]` per external DoF
-  - Provides `trajectory(dof) -> DataFrame-like` of (step, ρ, ε, σ, C, type) over time
-- [ ] Phase transition detection
+  - Stores time series: `List[TrajectoryPoint]` per external DoF (TrajectoryPoint = epoch + KnowledgeAssessment)
+  - Provides `trajectory(dof)`, `latest(dof)`, `step(epoch)`
+- [x] Phase transition detection
   - `detect_grokking(dof)` — find the epoch where knowledge_type jumps from weak/false → strong
   - `detect_resonance(dof)` — find epochs where ρ is rising but σ is still high (feature locking in, pre-grokking)
   - `detect_forgetting(dof)` — find epochs where ρ drops (distribution shift, catastrophic forgetting)
-- [ ] Training loop integration
+- [x] Training loop integration
   - `tracker.step(epoch)` — call after each epoch, automatically runs assess_knowledge on all external DoFs
   - Works with any training loop (PyTorch, numpy, external)
   - Serializable (save/load trajectory with observer)
-- [ ] Tests + example: train an MLP on modular addition, show K trajectory through memorization → grokking
-- [ ] All tests pass
+- [x] Tests + example: train an MLP on modular addition, show K trajectory through memorization → grokking
+  - `examples/08_knowledge_tracker.py` — full training loop with grokking, GPU support
+  - Smoke test in `tests/unit/test_tracker.py::TestTrackerTorchSmoke`
+  - Uses sum-class averaging to remove within-pair noise (89% of variance); per-neuron R reaches 0.97
+  - Auto-discovers model's dominant Fourier frequencies via DFT of sum-averaged activations
+  - Grokking detected; feature-level knowledge ("strong") precedes behavioral generalization
+  - Key finding: sum-averaging is task-specific (requires knowing grouping variable); see `memory/phase8a_grokking.md`
+- [x] All tests pass (248/248)
 
 #### 8b: Online Feature Discovery (experimental)
 
@@ -209,4 +215,4 @@ src/ro_framework/
    Depends on 8a working well. May need iteration on the loss formulation.
 
 ## Current Status
-**v0.2.1-dev** — Phase 7 complete (231/231 tests passing)
+**v0.2.1-dev** — Phase 8a complete (248/248 tests passing)

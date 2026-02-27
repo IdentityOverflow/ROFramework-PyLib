@@ -35,6 +35,7 @@ from ro_framework.observer.mapping import MappingFunction, NeuralMapping
 
 # Knowledge exports
 from ro_framework.knowledge.assessment import KnowledgeAssessment, compute_knowledge
+from ro_framework.knowledge.tracker import KnowledgeTracker, TrajectoryPoint
 
 # Consciousness exports
 from ro_framework.consciousness.evaluation import (
@@ -62,6 +63,8 @@ __all__ = [
     # Knowledge
     "KnowledgeAssessment",
     "compute_knowledge",
+    "KnowledgeTracker",
+    "TrajectoryPoint",
     # Consciousness
     "ConsciousnessEvaluator",
     "ConsciousnessMetrics",
