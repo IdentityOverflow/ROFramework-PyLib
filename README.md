@@ -152,15 +152,17 @@ src/ro_framework/
 ├── observer/          # Observer, ObservationLog, Mapping
 │   ├── observer.py
 │   └── mapping.py
-├── knowledge/         # KnowledgeAssessment, compute_knowledge
-│   └── assessment.py
+├── knowledge/         # KnowledgeAssessment, compute_knowledge, trajectory tracking
+│   ├── assessment.py
+│   └── tracker.py
 ├── correlation/       # Pearson, MI, temporal, causal detection
 │   └── measures.py
 ├── consciousness/     # ConsciousnessEvaluator, ConsciousnessMetrics
 │   └── evaluation.py
-└── integration/       # PyTorch bridge, convenience wrappers
+└── integration/       # PyTorch bridge, wrappers, activation analysis
     ├── torch.py
-    └── wrappers.py
+    ├── wrappers.py
+    └── activation_tracker.py
 ```
 
 ## Key Features
@@ -223,31 +225,23 @@ This is a v0.2.1-dev research library. Be aware of these issues:
 
 ## Roadmap
 
-Short-term (bug fixes and usability): **done**
+Next (training-time knowledge dynamics):
 
-- ~~Fix systematic error computation to detect real bias~~
-- ~~Add input/output DoF validation on `observe()`~~
-- ~~Observer serialization (save/load with observation history)~~
-- ~~Numpy-native batch path for `_CallableMapping`~~
-
-Medium-term (training-time knowledge dynamics):
-
-- Knowledge trajectory tracking — record K(d_ext) over training epochs, detect phase transitions (memorization → grokking), resonance (feature locking in), and forgetting
-- Online feature discovery *(experimental)* — track activation covariance during training to find emerging features without post-hoc SAE training. Directions with growing, stable variance are candidate DoFs.
-- Knowledge-guided training *(experimental)* — use K(d_ext) as a training signal. Penalize poor calibration, reward correlation. Hypothesis: selective regularization on memorized features accelerates grokking.
-- SAE integration — load pre-trained SAEs, compose with model layer as world_model
-- SAE training tools — train SAEs on arbitrary model activations for universal model support
+- Knowledge-guided training *(experimental)* — use K(d_ext) as a training signal. Selective regularization on memorized features to accelerate grokking.
+- SAE integration — load pre-trained SAEs, compose with model layer as world_model mapping
+- SAE training tools — train SAEs on arbitrary model activations
 
 Longer-term (research directions):
 
 - Multi-observer systems — comparing knowledge across model ensembles
 - Causal vs. correlational knowledge distinction
 - Information-theoretic knowledge bounds given observer resolution and boundary
-- Automatic DoF discovery — using online feature tracking or trained SAEs to discover what DoFs a model has learned, rather than specifying them manually
+- Automatic DoF discovery — combine ActivationTracker feature emergence with SAE decomposition
 
 ## Documentation
 
 - [Theoretical Framework](ro_framework.md) — Complete theoretical foundation (1500+ lines)
+- [Research Findings](RESEARCH.md) — Empirical results from training-time knowledge dynamics experiments
 - [Examples](examples/) — Runnable demonstrations of each feature
 
 ## License
@@ -267,4 +261,4 @@ Apache License 2.0 — see LICENSE file for details.
 
 ---
 
-**Version**: 0.2.0 | **Python**: 3.9+
+**Version**: 0.2.1-dev | **Python**: 3.9+

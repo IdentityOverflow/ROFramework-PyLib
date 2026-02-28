@@ -9,9 +9,10 @@ This module provides integrations with popular machine learning frameworks:
 
 # PyTorch integration (only import if torch is available)
 try:
+    from ro_framework.integration.activation_tracker import ActivationTracker
     from ro_framework.integration.torch import TorchNeuralMapping, TorchObserver
 
-    __all__ = ["TorchNeuralMapping", "TorchObserver"]
+    __all__ = ["ActivationTracker", "TorchNeuralMapping", "TorchObserver"]
 except ImportError:
     # PyTorch not installed
     __all__ = []

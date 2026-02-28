@@ -155,20 +155,29 @@ during training by tracking which directions in activation space are being ampli
 A direction with growing, stable variance is a candidate monosemantic feature — a
 resonance that's locking in.
 
-- [ ] `integration/activation_tracker.py` — `ActivationTracker` class
+- [x] `integration/activation_tracker.py` — `ActivationTracker` class
   - PyTorch forward hook that collects activations at a specified layer
-  - Maintains running mean and covariance (incremental, memory-efficient)
-  - Incremental PCA / SVD to find top-K principal directions
-- [ ] `discover_dofs(threshold)` — extract candidate DoFs from tracked activations
-  - Directions with eigenvalue growth above threshold become PolarDoFs
+  - Welford's online algorithm for mean and covariance (memory-efficient, O(D²))
+  - PCA via `np.linalg.eigh` to find top-K principal directions
+- [x] `discover_dofs(min_stability, min_stable_epochs, min_variance_fraction)` — extract candidate DoFs
+  - Stable directions (|cos_sim| > threshold for N consecutive epochs) become PolarDoFs
   - Each discovered DoF has a projection vector (the eigenvector) for extracting values
-  - Returns DoFs + a projection mapping that composes with the model as a world_model
-- [ ] Stability tracking — which directions persist vs. are transient
-  - Compare principal directions across epochs (subspace angle / cosine similarity)
-  - A direction that's been stable for N epochs is a "locked in" feature
-  - Transient directions are noise or memorization artifacts
-- [ ] Tests: train MLP, verify discovered directions correlate with known Fourier features
-- [ ] All tests pass
+  - `_ProjectionMapping` class for projecting activations onto discovered directions
+- [x] Stability tracking — which directions persist vs. are transient
+  - Greedy cosine similarity matching across epochs (handles rank swaps, sign ambiguity)
+  - Direction identity histories track same direction across epochs
+  - `detect_eigenvalue_spike()` for detecting feature lock-in
+  - Optional readout alignment with fc2 weight matrix for task-relevance scoring
+- [x] Tests: 26 tests in `tests/unit/test_activation_tracker.py`
+  - Welford statistics, PCA lifecycle, direction matching, discovery, serialization
+  - Torch smoke tests: hook collection, known-rank recovery, readout alignment
+- [x] Example: `examples/09_activation_tracker.py` — grokking with honest comparison to Phase 8a
+  - Stability clearly marks grokking transition (0.4 → 0.999 during generalization)
+  - Eigenvalue spikes at memorization onset (epoch 250)
+  - Top-variance PCA directions ≠ task-relevant Fourier features (readout alignment drops)
+  - 89% of activation variance is within-sum-class noise; PCA captures embedding modes
+  - Confirms: temporal dynamics (stability, spikes) are task-agnostic grokking detectors
+- [x] All tests pass (274/274)
 
 #### 8c: Knowledge-Guided Training (experimental)
 
@@ -215,4 +224,4 @@ src/ro_framework/
    Depends on 8a working well. May need iteration on the loss formulation.
 
 ## Current Status
-**v0.2.1-dev** — Phase 8a complete (248/248 tests passing)
+**v0.2.1-dev** — Phase 8b complete (274/274 tests passing)
