@@ -95,14 +95,16 @@ Given the 89/11 variance split, we tested several task-agnostic approaches to fi
 5. **Temporal differencing (dual-window)** — generalized eigenvalue problem (scipy.linalg.eigh) to find directions that changed more in a narrow window than a wide window, isolating recently accelerating features
 6. **Dynamic Mode Decomposition (DMD)** — treats training epochs as a temporal DoF in a dynamical system. Tested in both full-rank and readout-projected variants.
 7. **Cointegration / Slow Feature Analysis (SFA)** — computes generalized eigenvalues of Cov(Final) vs Cov(Change) to find features that have high variance but have stopped changing.
-8. **Sum-averaged per-neuron** (oracle) — requires task knowledge
+8. **3rd-order tensor unfolding** — SVD of the mode-1 unfolded coskewness tensor $S_{ijk} = E[x_i x_j x_k]$ to find directions maximizing 3rd-order variance
+9. **Sum-averaged per-neuron** (oracle) — requires task knowledge
 
 ### Denoising results
 
 | Method | Best Raw R | Best Avg R | Task knowledge needed? |
 | ------ | ---------- | ---------- | ---------------------- |
 | Readout-projected PCA | **0.907** | **0.994** | No |
-| Cointegration / SFA | **0.806** | 0.972 | No |
+| 3rd-order tensor unfolding | 0.850 | 0.892 | No |
+| Cointegration / SFA | 0.806 | 0.972 | No |
 | Temporal diff (single) | 0.521 | 0.892 | No |
 | Temporal diff (dual) | 0.521 | 0.892 | No |
 | Readout-Projected DMD | 0.410 | 0.833 | No |
@@ -114,6 +116,8 @@ Given the 89/11 variance split, we tested several task-agnostic approaches to fi
 ### Analysis
 
 **Cointegration / Slow Feature Analysis finds settled features.** The generalized eigenvalue problem $C_{final} \cdot v = \lambda \cdot C_{\Delta} \cdot v$ finds directions with high final variance but low recent change — features that have "crystallized." This discovered the k=7 Fourier feature with R=0.806 raw correlation, without task knowledge or readout projection. The insight: after grokking, Fourier features stabilize while embedding noise keeps drifting, so the variance-to-change ratio naturally separates them. Caveats: this is a post-hoc detector (features must have already settled), and the window choice (which "earlier" epoch to compare against) matters without a principled way to select it. It would also find any stable noise direction, not just task-relevant features.
+
+**3rd-order tensor unfolding finds features from a single snapshot.** SVD of the mode-1 unfolded coskewness tensor achieves R=0.850 using only final activations — no temporal snapshots, no architectural information. The 3rd moment captures coordinated skewness patterns across neurons: after ReLU, neurons tuned to the same Fourier frequency have correlated higher-order statistics, while pair-specific embedding noise creates less coordinated skewness. Like readout projection and SFA, the signal hides in low-variance directions (1.1% of total variance). However, **this method does not scale**: the unfolded tensor is (D, D²), requiring O(D³) memory and O(D⁴) compute. For D=128 this is trivial (16 MB), but for D=4096 (Llama-scale) it requires ~537 GB. Approximations (randomized SVD, tensor sketching) exist but tend to discard exactly the low-variance signal we need. This result confirms that 3rd-order statistics separate signal from noise in principle, but SFA (O(D²) memory, O(D³) compute) remains the practical choice for scalable feature discovery without architectural information.
 
 **DMD shows modest improvement over PCA on raw data.** Dynamic Mode Decomposition treats training as a dynamical system, fitting a linear operator to the epoch-to-epoch evolution of activations. Standard DMD's SVD truncation discards the 11% feature signal along with the 89% noise. Full-rank DMD (R=0.316) and readout-projected DMD (R=0.410) improve over raw PCA's R=0.070 on raw data. However, on sum-averaged data, DMD's avg R (0.785–0.833) is actually *worse* than raw PCA (0.881), suggesting DMD directions partially overlap with the signal but don't cleanly isolate it. The fundamental limitation: DMD assumes linear dynamics, but neural network training is highly nonlinear.
 
@@ -129,7 +133,7 @@ Given the 89/11 variance split, we tested several task-agnostic approaches to fi
 
 **Implications for real models.** Every neural network with a readout layer has this structure. In transformers, the unembedding matrix plays this role. Projecting intermediate activations onto the unembedding row space before analysis should similarly filter noise, though transformers also use residual streams and attention, complicating the picture.
 
-See [examples/10a_denoising_experiment.py](examples/10a_denoising_experiment.py) (readout projection, ICA, temporal diff), [examples/10b_dmd_experiment.py](examples/10b_dmd_experiment.py) (DMD), [examples/10c_dmd_full_experiment.py](examples/10c_dmd_full_experiment.py) (full-rank and projected DMD), [examples/10d_cointegration_experiment.py](examples/10d_cointegration_experiment.py) (SFA/cointegration).
+See [examples/10a_denoising_experiment.py](examples/10a_denoising_experiment.py) (readout projection, ICA, temporal diff), [examples/10b_dmd_experiment.py](examples/10b_dmd_experiment.py) (DMD), [examples/10c_dmd_full_experiment.py](examples/10c_dmd_full_experiment.py) (full-rank and projected DMD), [examples/10d_cointegration_experiment.py](examples/10d_cointegration_experiment.py) (SFA/cointegration), [examples/10e_bispectrum_experiment.py](examples/10e_bispectrum_experiment.py) (3rd-order tensor unfolding).
 
 ## Open Questions
 
