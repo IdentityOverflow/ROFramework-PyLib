@@ -226,14 +226,26 @@ This is a v0.2.1-dev research library. Be aware of these issues:
 
 ## Roadmap
 
-Next:
+### Phase 9: Interpretability Dashboard (Direction A)
 
-- SAE integration — load pre-trained SAEs, compose with model layer as world_model mapping
+Make the library work on real models, not just toys.
+
+- SAE integration — load pre-trained SAEs (via SAELens/TransformerLens), compose with model layer as world_model mapping
+- GPT-2 proof of concept — wrap GPT-2 + pre-trained SAE, run `assess_knowledge` on real learned features, produce meaningful K tuples
+- Feature-level knowledge profiles — "this model has strong knowledge of feature X, false knowledge of feature Y"
 - SAE training tools — train SAEs on arbitrary model activations
 
-Longer-term (research directions):
+### Phase 10: Self-Aware Training (Direction B)
 
-- Multi-observer systems — comparing knowledge across model ensembles
+Use the framework as introspection machinery inside a training loop.
+
+- Training-time feature introspection — periodically assess K(d_ext) on SAE-extracted features during fine-tuning
+- Self-model integration — model maintains a structural map of what it knows as it learns
+- Multi-observer comparison — compare knowledge profiles across model checkpoints, fine-tune variants, or ensemble members
+- Multimodal bridge — assess alignment between visual and linguistic feature spaces using observer-relative knowledge
+
+### Research directions
+
 - Causal vs. correlational knowledge distinction
 - Information-theoretic knowledge bounds given observer resolution and boundary
 - Automatic DoF discovery — combine ActivationTracker feature emergence with SAE decomposition

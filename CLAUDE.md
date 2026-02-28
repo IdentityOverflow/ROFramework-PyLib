@@ -215,14 +215,23 @@ src/ro_framework/
 │   └── training.py            # NEW: KnowledgeRegularizer (experimental, negative result)
 ```
 
-#### Execution order
+### Phase 9: Interpretability Dashboard (Direction A)
 
-1. **8a first** — KnowledgeTracker is pure engineering on top of existing assess_knowledge().
-   No new dependencies, no hypotheses. Proves the temporal analysis works.
-2. **8b second** — ActivationTracker is experimental but grounded in well-known PCA/SVD.
-   Validates whether online feature discovery produces meaningful DoFs.
-3. **8c last** — KnowledgeLoss and AdaptiveRegularizer are the most speculative.
-   Depends on 8a working well. May need iteration on the loss formulation.
+Make the library work on real models. SAE integration is the bridge from toy to real.
+
+- [ ] SAE integration — load pre-trained SAEs (SAELens/TransformerLens), SAE features → DoFs
+- [ ] GPT-2 proof of concept — wrap GPT-2 + pre-trained SAE, `assess_knowledge` on real features
+- [ ] Feature-level knowledge profiles — meaningful K tuples for real learned features
+- [ ] SAE training tools — train SAEs on arbitrary model activations
+
+### Phase 10: Self-Aware Training (Direction B)
+
+Use the framework as introspection machinery inside a training loop. Depends on Phase 9.
+
+- [ ] Training-time feature introspection — periodic K(d_ext) on SAE features during fine-tuning
+- [ ] Self-model integration — model maintains structural map of what it knows as it learns
+- [ ] Multi-observer comparison — knowledge profiles across checkpoints, fine-tune variants, ensembles
+- [ ] Multimodal bridge — assess alignment between visual and linguistic feature spaces
 
 ## Current Status
-**v0.2.1-dev** — Phase 8c complete (291/291 tests passing)
+**v0.2.1-dev** — Phase 8 complete (291/291 tests passing). Next: Phase 9 (SAE integration).
