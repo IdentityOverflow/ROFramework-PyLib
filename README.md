@@ -159,10 +159,11 @@ src/ro_framework/
 │   └── measures.py
 ├── consciousness/     # ConsciousnessEvaluator, ConsciousnessMetrics
 │   └── evaluation.py
-└── integration/       # PyTorch bridge, wrappers, activation analysis
+└── integration/       # PyTorch bridge, wrappers, activation analysis, training
     ├── torch.py
     ├── wrappers.py
-    └── activation_tracker.py
+    ├── activation_tracker.py
+    └── training.py
 ```
 
 ## Key Features
@@ -225,9 +226,8 @@ This is a v0.2.1-dev research library. Be aware of these issues:
 
 ## Roadmap
 
-Next (training-time knowledge dynamics):
+Next:
 
-- Knowledge-guided training *(experimental)* — use K(d_ext) as a training signal. Selective regularization on memorized features to accelerate grokking.
 - SAE integration — load pre-trained SAEs, compose with model layer as world_model mapping
 - SAE training tools — train SAEs on arbitrary model activations
 
@@ -237,6 +237,13 @@ Longer-term (research directions):
 - Causal vs. correlational knowledge distinction
 - Information-theoretic knowledge bounds given observer resolution and boundary
 - Automatic DoF discovery — combine ActivationTracker feature emergence with SAE decomposition
+
+Completed (Phase 8):
+
+- Knowledge trajectory tracking — `KnowledgeTracker` records K(d_ext) over training epochs, detects grokking/resonance/forgetting
+- Online feature discovery — `ActivationTracker` with Welford's online covariance, PCA stability tracking, eigenvalue spike detection
+- Denoising experiments — readout projection (R=0.907), SFA (R=0.806), tensor unfolding (R=0.850), and others
+- Knowledge-guided training — negative result: K(d_ext) is a feature-level metric unsuitable for steering training dynamics (see [RESEARCH.md](RESEARCH.md))
 
 ## Documentation
 
