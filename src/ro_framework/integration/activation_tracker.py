@@ -56,12 +56,15 @@ class DirectionSnapshot:
         explained_variance_ratio: Fraction of total variance each direction
             explains, shape (top_k,).
         total_variance: Trace of the covariance matrix.
+        cov_matrix: Optional. The raw covariance matrix at this epoch, used
+            for Slow Feature Analysis (SFA).
     """
 
     epoch: int
     directions: List[TrackedDirection]
     explained_variance_ratio: np.ndarray
     total_variance: float
+    cov_matrix: Optional[np.ndarray] = None
 
 
 @dataclass(frozen=True)
@@ -71,9 +74,10 @@ class DiscoveredDoF:
     Attributes:
         dof: PolarDoF created for this direction.
         projection: Unit vector to project activations onto this DoF.
-        eigenvalue: Variance along this direction.
+        eigenvalue: Variance along this direction (or SFA settle score).
         stability_epochs: Consecutive epochs this direction has been stable.
         source_layer: Name of the layer this was discovered from.
+        discovery_method: Method used to find this ("pca" or "sfa").
     """
 
     dof: PolarDoF
@@ -81,6 +85,7 @@ class DiscoveredDoF:
     eigenvalue: float
     stability_epochs: int
     source_layer: str
+    discovery_method: str = "pca"
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +164,8 @@ class ActivationTracker:
         device: Device string for input tensors.
         readout_layer_name: Optional layer whose weight matrix defines
             the task-relevant subspace (e.g. "fc2").
+        store_covariance: If True, stores the raw covariance matrix in each
+            snapshot. Required for Slow Feature Analysis (SFA).
     """
 
     def __init__(
@@ -168,12 +175,14 @@ class ActivationTracker:
         top_k: int = 10,
         device: str = "cpu",
         readout_layer_name: Optional[str] = None,
+        store_covariance: bool = False,
     ) -> None:
         self._model = model
         self._layer_name = layer_name
         self._top_k = top_k
         self._device = device
         self._readout_layer_name = readout_layer_name
+        self._store_covariance = store_covariance
 
         self._hook_handle: Optional[torch.utils.hooks.RemovableHook] = None
         self._snapshots: List[DirectionSnapshot] = []
@@ -300,6 +309,7 @@ class ActivationTracker:
             directions=directions,
             explained_variance_ratio=evr.copy(),
             total_variance=total_var,
+            cov_matrix=cov.copy() if self._store_covariance else None,
         )
         self._snapshots.append(snapshot)
 
@@ -691,3 +701,83 @@ class _ProjectionMapping:
                 for j in range(len(self._dofs))
             })
         return results
+
+
+# ---------------------------------------------------------------------------
+# Offline / Batch Feature Discovery
+# ---------------------------------------------------------------------------
+
+
+def extract_sfa_dofs(
+    h_final: np.ndarray,
+    h_earlier: np.ndarray,
+    layer_name: str = "unknown_layer",
+    n_components: int = 10,
+    min_settle_score: float = 10.0,
+    regularization: float = 1e-6,
+) -> List[DiscoveredDoF]:
+    """Discover settled features using Slow Feature Analysis / Cointegration.
+    
+    Finds directions in activation space that have high variance in the final 
+    state but low variance in their change from an earlier state. This isolates 
+    features that have "settled" (formed and stabilized) while embedding noise 
+    continues to drift.
+    
+    Args:
+        h_final: Activations at current epoch, shape (N, D).
+        h_earlier: Activations at previous epoch for the exact same inputs, shape (N, D).
+        layer_name: String to identify the source layer in the resulting DoFs.
+        n_components: Maximum number of directions to return.
+        min_settle_score: Minimum generalized eigenvalue (ratio of final variance
+            to change variance) to consider a direction settled.
+        regularization: Small value added to the diagonal of the change covariance
+            to avoid singularity.
+            
+    Returns:
+        List of DiscoveredDoF, sorted by settle score (highest first).
+    """
+    import scipy.linalg
+    
+    if h_final.shape != h_earlier.shape:
+        raise ValueError("h_final and h_earlier must have identical shapes.")
+        
+    # Covariance of final state
+    hf_centered = h_final - h_final.mean(axis=0)
+    cov_final = (hf_centered.T @ hf_centered) / (len(h_final) - 1)
+    
+    # Covariance of temporal change
+    diff = h_final - h_earlier
+    diff_centered = diff - diff.mean(axis=0)
+    cov_diff = (diff_centered.T @ diff_centered) / (len(diff) - 1)
+    
+    # Regularize to avoid singularity
+    cov_diff += np.eye(cov_diff.shape[0]) * regularization
+    
+    # Solve Generalized Eigenvalue Problem
+    eigenvalues, eigenvectors = scipy.linalg.eigh(cov_final, cov_diff)
+    
+    # Filter and sort
+    discovered = []
+    idx = np.argsort(eigenvalues)[::-1]
+    
+    for i in idx:
+        score = float(eigenvalues[i])
+        if score < min_settle_score:
+            continue
+            
+        direction = eigenvectors[:, i].copy()
+        direction = direction / np.clip(np.linalg.norm(direction), 1e-12, None)
+        
+        discovered.append(DiscoveredDoF(
+            dof=PolarDoF(name=f"sfa_{len(discovered)}"),
+            projection=direction,
+            eigenvalue=score,          # We store the settle score here
+            stability_epochs=-1,       # N/A for offline SFA
+            source_layer=layer_name,
+            discovery_method="sfa",
+        ))
+        
+        if len(discovered) >= n_components:
+            break
+            
+    return discovered

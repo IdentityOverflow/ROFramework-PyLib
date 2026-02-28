@@ -12,7 +12,7 @@ An MLP learns modular addition: given inputs a and b (integers mod 97), predict 
 
 After grokking, the theory predicts that hidden neurons lock into Fourier features: cos(2πk·s/p + φ) where s = (a+b) mod p. We use the framework's knowledge assessment to track whether and when this happens.
 
-### Results
+### Trajectory tracking results
 
 **Feature-level knowledge precedes behavioral generalization.** Fourier features reach "strong" knowledge (R > 0.7) hundreds of epochs before test accuracy rises. At epoch 500, sin(k=1) features have R=0.765 while test accuracy is 0%. The observer "knows" the feature before the model can use it for classification.
 
@@ -44,7 +44,7 @@ See [examples/08_knowledge_tracker.py](examples/08_knowledge_tracker.py).
 
 Same modular addition MLP. At evaluation intervals, collect all p² activations, compute running covariance, extract top PCA directions. Track which directions persist across epochs (stability) and how eigenvalues evolve.
 
-### Results
+### Feature discovery results
 
 **Stability is a task-agnostic grokking detector.** PCA direction stability (cosine similarity of top eigenvectors across epochs) jumps from 0.4 to 0.999 during the memorization-to-generalization transition. No task knowledge needed — just watching whether the principal directions are settling.
 
@@ -80,16 +80,67 @@ Option 3 is the most interesting theoretically — it connects to matched filter
 
 ### Analogy
 
-Imagine a crowd where several small groups are singing different songs simultaneously. You hear a wall of noise. PCA finds the loudest sounds — which are the crowd murmur, not any song. Sum-averaging is like already knowing which people are in each group and listening to them separately. The open question: can you discover the groups by systematically scanning frequencies (like a radio tuner) and finding which ones reveal coordinated activity?
+Imagine a crowd where several small groups are singing different songs simultaneously. You hear a wall of noise. PCA finds the loudest sounds — which are the crowd murmur, not any song. Sum-averaging is like already knowing which people are in each group and listening to them separately. Readout projection is like asking the conductor "which instruments are you listening to?" and filtering for just those — you don't need to know the songs, the conductor already knows which sounds matter.
+
+## Denoising Experiment
+
+Given the 89/11 variance split, we tested several task-agnostic approaches to find Fourier features without sum-averaging.
+
+### Approaches tested
+
+1. **Raw PCA** (baseline) — standard PCA on all 9409 activation vectors
+2. **Readout-projected PCA** — project activations onto fc2's row space (the subspace the output layer reads from), then PCA within that constrained space
+3. **ICA (FastICA)** — find maximally independent/non-Gaussian directions
+4. **Temporal differencing (single-window)** — PCA on (h_now - h_earlier) to find directions that changed most between two training snapshots
+5. **Temporal differencing (dual-window)** — generalized eigenvalue problem (scipy.linalg.eigh) to find directions that changed more in a narrow window than a wide window, isolating recently accelerating features
+6. **Dynamic Mode Decomposition (DMD)** — treats training epochs as a temporal DoF in a dynamical system. Tested in both full-rank and readout-projected variants.
+7. **Cointegration / Slow Feature Analysis (SFA)** — computes generalized eigenvalues of Cov(Final) vs Cov(Change) to find features that have high variance but have stopped changing.
+8. **Sum-averaged per-neuron** (oracle) — requires task knowledge
+
+### Denoising results
+
+| Method | Best Raw R | Best Avg R | Task knowledge needed? |
+| ------ | ---------- | ---------- | ---------------------- |
+| Readout-projected PCA | **0.907** | **0.994** | No |
+| Cointegration / SFA | **0.806** | 0.972 | No |
+| Temporal diff (single) | 0.521 | 0.892 | No |
+| Temporal diff (dual) | 0.521 | 0.892 | No |
+| Readout-Projected DMD | 0.410 | 0.833 | No |
+| Full-Rank DMD | 0.316 | 0.785 | No |
+| Raw PCA | 0.070 | 0.881 | No |
+| ICA | 0.055 | 0.686 | No |
+| Oracle (sum-averaged) | — | 0.97 | Yes |
+
+### Analysis
+
+**Cointegration / Slow Feature Analysis finds settled features.** The generalized eigenvalue problem $C_{final} \cdot v = \lambda \cdot C_{\Delta} \cdot v$ finds directions with high final variance but low recent change — features that have "crystallized." This discovered the k=7 Fourier feature with R=0.806 raw correlation, without task knowledge or readout projection. The insight: after grokking, Fourier features stabilize while embedding noise keeps drifting, so the variance-to-change ratio naturally separates them. Caveats: this is a post-hoc detector (features must have already settled), and the window choice (which "earlier" epoch to compare against) matters without a principled way to select it. It would also find any stable noise direction, not just task-relevant features.
+
+**DMD shows modest improvement over PCA on raw data.** Dynamic Mode Decomposition treats training as a dynamical system, fitting a linear operator to the epoch-to-epoch evolution of activations. Standard DMD's SVD truncation discards the 11% feature signal along with the 89% noise. Full-rank DMD (R=0.316) and readout-projected DMD (R=0.410) improve over raw PCA's R=0.070 on raw data. However, on sum-averaged data, DMD's avg R (0.785–0.833) is actually *worse* than raw PCA (0.881), suggesting DMD directions partially overlap with the signal but don't cleanly isolate it. The fundamental limitation: DMD assumes linear dynamics, but neural network training is highly nonlinear.
+
+**Readout projection works.** By projecting onto the output weight matrix's row space (rank 97, captures 49% of total variance), the embedding noise orthogonal to the output is discarded. PCA within this constrained subspace finds a direction at rank 9 (only 1.3% of total variance) with raw R = 0.888 for k=7. Sum-averaged, it reaches R = 0.994 — better than the oracle per-neuron approach.
+
+**Temporal differencing partially works.** PCA on activation differences (h_epoch5000 - h_epoch3000) finds directions that changed most during grokking. Best raw R = 0.521 — much better than raw PCA (0.070) but far below readout projection (0.907). Later windows (closer to grokking) work better. The method finds different frequencies than readout projection (k=12,42 vs k=7), suggesting it captures different aspects of the learning dynamics. The dual-window variant (generalized eigenvalue problem for narrow-vs-wide change ratio) ties with single-window — the noise is present equally in both windows, so the ratio doesn't improve separation.
+
+**ICA fails.** The non-Gaussianity criterion doesn't separate Fourier features from embedding noise. The embedding noise comprises hundreds of pair-specific effects that dominate the independence structure. FastICA finds noise modes, not signal.
+
+**Why temporal differencing is limited.** The 89% within-sum-class noise is not static — it evolves across epochs as embeddings change. Taking diffs cancels only the *static* component of noise, not the evolving part. The Fourier signal also evolves, so it partially survives differencing, but the signal-to-noise ratio improves only modestly (from 11/89 to roughly 30/70).
+
+**Key insight: the model is its own best radio tuner.** The output weight matrix defines exactly which directions are task-relevant. This is architectural information, not task labels — the model tells us what it cares about through its own weights. Low-variance directions within the readout subspace are precisely the features that generalization selected for, rather than the high-variance noise PCA naturally gravitates toward.
+
+**Implications for real models.** Every neural network with a readout layer has this structure. In transformers, the unembedding matrix plays this role. Projecting intermediate activations onto the unembedding row space before analysis should similarly filter noise, though transformers also use residual streams and attention, complicating the picture.
+
+See [examples/10a_denoising_experiment.py](examples/10a_denoising_experiment.py) (readout projection, ICA, temporal diff), [examples/10b_dmd_experiment.py](examples/10b_dmd_experiment.py) (DMD), [examples/10c_dmd_full_experiment.py](examples/10c_dmd_full_experiment.py) (full-rank and projected DMD), [examples/10d_cointegration_experiment.py](examples/10d_cointegration_experiment.py) (SFA/cointegration).
 
 ## Open Questions
 
-1. **Structured scanning for feature discovery.** Can we find task-relevant features without task knowledge or full SAE training? Possible approaches: frequency scanning (works for periodic features), canonical correlation between layers, clustering in activation space, or progressive filtering.
+1. **Readout projection during training.** Does readout-projected PCA find emerging features during training, not just post-hoc? The output weights themselves are changing, so the projection subspace evolves. Does this help or hurt? Need to test temporal dynamics with the evolving readout space.
 
-2. **When does PCA suffice?** In models where task-relevant features dominate variance (unlike modular addition's 89/11 split), PCA-discovered directions may be directly useful as DoFs. Characterizing when this holds would determine when ActivationTracker is sufficient without SAE decomposition.
+2. **Multi-layer readout projection.** In deeper networks, which readout layer matters? Can we chain projections through multiple layers? In transformers, the relevant readout might be attention heads, not just the final unembedding.
 
-3. **Pre-ReLU structural constraint.** Before ReLU, activations are f(a)+g(b) — additive and mathematically orthogonal to any function of (a+b) mod p. ReLU creates the multiplicative interaction. Does this generalize to other architectures? What activation functions produce what kinds of feature interactions?
+3. **When does PCA suffice?** In models where task-relevant features dominate variance (unlike modular addition's 89/11 split), PCA-discovered directions may be directly useful as DoFs. Characterizing when this holds would determine when ActivationTracker is sufficient without readout projection.
 
-4. **Knowledge-guided training.** Can K(d_ext) be used as a training signal? If features stuck in memorization (high ρ, low C) receive increased weight decay, does grokking accelerate? (Phase 8c, not yet implemented.)
+4. **Pre-ReLU structural constraint.** Before ReLU, activations are f(a)+g(b) — additive and mathematically orthogonal to any function of (a+b) mod p. ReLU creates the multiplicative interaction. Does this generalize to other architectures?
 
-5. **Feature-behavioral lag.** Feature-level knowledge precedes test accuracy by hundreds of epochs. Can this gap be used as a training diagnostic — if features are "strong" but accuracy is low, the output layer hasn't learned to compose them yet?
+5. **Knowledge-guided training.** Can K(d_ext) be used as a training signal? If features stuck in memorization (high ρ, low C) receive increased weight decay, does grokking accelerate? (Phase 8c, not yet implemented.) Readout-projected PCA could provide the feature detection needed to make this work without task knowledge.
+
+6. **Feature-behavioral lag.** Feature-level knowledge precedes test accuracy by hundreds of epochs. Can this gap be used as a training diagnostic — if features are "strong" but accuracy is low, the output layer hasn't learned to compose them yet?
