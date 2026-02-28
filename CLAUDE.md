@@ -179,26 +179,27 @@ resonance that's locking in.
   - Confirms: temporal dynamics (stability, spikes) are task-agnostic grokking detectors
 - [x] All tests pass (274/274)
 
-#### 8c: Knowledge-Guided Training (experimental)
+#### 8c: Knowledge-Guided Training (negative result)
 
 Hypothesis: the K(d_ext) tuple can be used as a training signal, not just a metric.
 If grokking is driven by the competition between loss minimization and regularization
 (weight decay), then selectively increasing regularization pressure on features stuck
 in the memorization phase should accelerate grokking.
 
-- [ ] `KnowledgeLoss` — differentiable loss terms derived from knowledge assessment
-  - Calibration loss: penalize low C (observer doesn't know what it doesn't know)
-  - Correlation reward: encourage high ρ for target DoFs
-  - Bias penalty: penalize high |ε| (systematic distortion)
-- [ ] `AdaptiveRegularizer` — adjusts weight decay per-feature based on K dynamics
-  - Features with high ρ but low C (memorized, not generalized) get increased regularization
-  - Features with high ρ and high C (genuinely learned) get reduced regularization
-  - Hypothesis: this steers the competitive dynamics to favor resonant solutions
-- [ ] Validation experiment: modular addition with and without knowledge-guided training
-  - Measure: epochs to grokking, final knowledge quality, feature emergence speed
-  - Compare: standard training vs. K-guided regularization
-- [ ] Tests + example
-- [ ] All tests pass
+- [x] `integration/training.py` — `KnowledgeRegularizer` class (combines KnowledgeLoss + AdaptiveRegularizer)
+  - Reads K from KnowledgeTracker, classifies features as memorized/generalized/uncertain
+  - Adjusts global weight decay: memorized → increase wd, generalized → decrease wd
+  - Bias penalty: additive loss term for features with high |ε| (false knowledge)
+  - `FeatureRegularization` dataclass for per-feature state
+- [x] Tests: 15 tests in `tests/unit/test_training.py`
+  - FeatureRegularization creation, KnowledgeRegularizer multipliers, integration with tracker, edge cases
+- [x] Validation experiment: `examples/11_knowledge_guided_training.py`
+  - **Result: K-guided training was 81% slower** (grokking at epoch 7250 vs baseline 4000)
+  - Root cause: feature-behavioral lag — K reaches "strong" at epoch 500 while test acc is 0%
+  - Regularizer misinterprets early feature formation as generalization → reduces wd → slows grokking
+  - The "memorized" state (high ρ, low C) never occurs on clean sum-averaged data
+  - Valid negative result: K(d_ext) is a feature-level metric, not a model-level one
+- [x] All tests pass (291/291)
 
 #### Phase 8 architecture
 
@@ -211,7 +212,7 @@ src/ro_framework/
 │   ├── torch.py               # existing TorchObserver
 │   ├── wrappers.py            # existing wrap_callable, wrap_torch_model
 │   ├── activation_tracker.py  # NEW: ActivationTracker, discover_dofs (experimental)
-│   └── training.py            # NEW: KnowledgeLoss, AdaptiveRegularizer (experimental)
+│   └── training.py            # NEW: KnowledgeRegularizer (experimental, negative result)
 ```
 
 #### Execution order
@@ -224,4 +225,4 @@ src/ro_framework/
    Depends on 8a working well. May need iteration on the loss formulation.
 
 ## Current Status
-**v0.2.1-dev** — Phase 8b complete (274/274 tests passing)
+**v0.2.1-dev** — Phase 8c complete (291/291 tests passing)

@@ -11,8 +11,14 @@ This module provides integrations with popular machine learning frameworks:
 try:
     from ro_framework.integration.activation_tracker import ActivationTracker
     from ro_framework.integration.torch import TorchNeuralMapping, TorchObserver
+    from ro_framework.integration.training import KnowledgeRegularizer
 
-    __all__ = ["ActivationTracker", "TorchNeuralMapping", "TorchObserver"]
+    __all__ = [
+        "ActivationTracker",
+        "KnowledgeRegularizer",
+        "TorchNeuralMapping",
+        "TorchObserver",
+    ]
 except ImportError:
     # PyTorch not installed
     __all__ = []

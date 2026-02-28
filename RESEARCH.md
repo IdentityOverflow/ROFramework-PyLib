@@ -135,6 +135,45 @@ Given the 89/11 variance split, we tested several task-agnostic approaches to fi
 
 See [examples/10a_denoising_experiment.py](examples/10a_denoising_experiment.py) (readout projection, ICA, temporal diff), [examples/10b_dmd_experiment.py](examples/10b_dmd_experiment.py) (DMD), [examples/10c_dmd_full_experiment.py](examples/10c_dmd_full_experiment.py) (full-rank and projected DMD), [examples/10d_cointegration_experiment.py](examples/10d_cointegration_experiment.py) (SFA/cointegration), [examples/10e_bispectrum_experiment.py](examples/10e_bispectrum_experiment.py) (3rd-order tensor unfolding).
 
+## Knowledge-Guided Training (Phase 8c — negative result)
+
+Hypothesis: if K(d_ext) can detect memorization (high ρ, low C), we can selectively increase weight decay on memorized features to accelerate grokking.
+
+### Setup
+
+`KnowledgeRegularizer` reads K from a `KnowledgeTracker` at eval intervals and adjusts the optimizer's global weight decay:
+- Memorized features (high ρ, low C): multiply weight decay by 3.0
+- Generalized features (high ρ, high C): multiply weight decay by 0.5
+- Uncertain features (low ρ): leave weight decay unchanged
+
+Two identical runs (same seed, same initial weights): baseline (constant wd=1.0) vs K-guided (KnowledgeRegularizer adjusts wd).
+
+### Result
+
+**K-guided training made grokking 81% slower** (epoch 7250 vs baseline epoch 4000).
+
+### Why it failed
+
+**Feature-behavioral lag undermines the approach.** On sum-averaged data, K(d_ext) measures feature-level knowledge — whether hidden neurons track Fourier components. This reaches "strong" (ρ > 0.7, C > 0.7) hundreds of epochs before test accuracy rises. At epoch 500, features are already "strong" while test accuracy is 0%.
+
+The regularizer interprets "strong" features as generalization and reduces weight decay. But the model hasn't actually generalized — the output layer hasn't learned to compose the features yet. Reducing weight decay removes the regularization pressure that drives grokking, slowing it down.
+
+The "memorized" state (high ρ, low C) that the regularizer targets never occurs on clean sum-averaged data. Features jump directly from "weak" to "strong" because sum-averaging removes the noise that would lower calibration.
+
+### Raw-data variant
+
+A follow-up experiment tracked K on raw per-pair activations instead of sum-averaged data, hoping that the lower per-pair correlations (ρ ≈ 0.36 max) would keep features in the "memorized" classification longer. Result: **no effect** — raw ρ never exceeded the memorized threshold, so the regularizer never fired. Both runs grokked at the same epoch (4000).
+
+This confirms that the problem is not just sum-averaging: per-DoF K(d_ext) is fundamentally the wrong signal for steering grokking dynamics, regardless of the data preprocessing.
+
+### Conclusions
+
+K(d_ext) is a feature-level metric, not a model-level one. Using it to steer training confuses the two levels. The feature-behavioral lag (features form hundreds of epochs before the model generalizes) means K cannot distinguish "features are forming" from "the model has generalized."
+
+Global weight decay modulation is also too blunt — grokking depends on the competition between all features simultaneously, and changing the pressure mid-race disrupts the resonance selection dynamics rather than steering them.
+
+See [examples/11_knowledge_guided_training.py](examples/11_knowledge_guided_training.py) (sum-averaged), [examples/11b_knowledge_guided_raw.py](examples/11b_knowledge_guided_raw.py) (raw data).
+
 ## Open Questions
 
 1. **Readout projection during training.** Does readout-projected PCA find emerging features during training, not just post-hoc? The output weights themselves are changing, so the projection subspace evolves. Does this help or hurt? Need to test temporal dynamics with the evolving readout space.
@@ -145,9 +184,7 @@ See [examples/10a_denoising_experiment.py](examples/10a_denoising_experiment.py)
 
 4. **Pre-ReLU structural constraint.** Before ReLU, activations are f(a)+g(b) — additive and mathematically orthogonal to any function of (a+b) mod p. ReLU creates the multiplicative interaction. Does this generalize to other architectures?
 
-5. **Knowledge-guided training.** Can K(d_ext) be used as a training signal? If features stuck in memorization (high ρ, low C) receive increased weight decay, does grokking accelerate? (Phase 8c, not yet implemented.) Readout-projected PCA could provide the feature detection needed to make this work without task knowledge.
-
-6. **Feature-behavioral lag.** Feature-level knowledge precedes test accuracy by hundreds of epochs. Can this gap be used as a training diagnostic — if features are "strong" but accuracy is low, the output layer hasn't learned to compose them yet?
+5. **Feature-behavioral lag as diagnostic.** Phase 8c showed that feature-level K reaches "strong" hundreds of epochs before test accuracy rises. This gap makes K unsuitable as a training signal, but it remains potentially useful as a diagnostic: if features are "strong" but accuracy is low, the bottleneck is feature composition in the output layer, not feature formation in hidden layers.
 
 
 **Bispectrum / 3rd-Order Statistics works perfectly, but is fundamentally unscalable.** Because the embedding noise $f(a) + g(b)$ is purely additive and symmetric, its 3rd moment (skewness) is mathematically zero. The Fourier feature requires multiplication (created by the ReLU breaking symmetry). By computing the exact 3D Coskewness Tensor $S_{ijk}$ and unfolding it to find the principal directions of skewness, the algorithm reached an $0.850$ correlation with the Fourier feature using only a **single snapshot** of data. However, while mathematically elegant, this approach is dead on arrival for deep learning: building and decomposing the full $D \times D \times D$ tensor scales as $\mathcal{O}(D^3)$ memory and $\mathcal{O}(D^4)$ compute. It works flawlessly for our $D=128$ toy model (tensor size ~2 million elements), but would be computationally impossible for an LLM where $D=4096$ (tensor size ~68 billion elements).
