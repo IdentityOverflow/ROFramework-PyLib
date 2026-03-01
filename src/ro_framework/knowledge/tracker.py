@@ -102,11 +102,13 @@ class KnowledgeTracker:
         external_dofs: Optional[List[DoF]] = None,
         assess_interval: int = 1,
         min_samples: int = 10,
+        max_features: int = 1,
     ) -> None:
         self.observer = observer
         self.external_dofs = list(external_dofs) if external_dofs else list(observer.external_dofs)
         self.assess_interval = max(1, assess_interval)
         self.min_samples = min_samples
+        self.max_features = max_features
         self._trajectories: Dict[str, List[TrajectoryPoint]] = {
             dof.name: [] for dof in self.external_dofs
         }
@@ -135,7 +137,9 @@ class KnowledgeTracker:
 
         results: Dict[DoF, Optional[KnowledgeAssessment]] = {}
         for dof in self.external_dofs:
-            assessment = self.observer.assess_knowledge(dof, min_samples=self.min_samples)
+            assessment = self.observer.assess_knowledge(
+                dof, min_samples=self.min_samples, max_features=self.max_features,
+            )
             results[dof] = assessment
             if assessment is not None:
                 self._trajectories[dof.name].append(

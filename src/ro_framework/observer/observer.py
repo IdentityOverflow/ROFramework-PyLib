@@ -269,7 +269,9 @@ class Observer:
     # Knowledge assessment — K(d_ext) = (ρ, ε, σ, C)
     # ------------------------------------------------------------------
 
-    def assess_knowledge(self, external_dof: DoF, min_samples: int = 10):
+    def assess_knowledge(
+        self, external_dof: DoF, min_samples: int = 10, max_features: int = 1,
+    ):
         """Compute graded knowledge of an external DoF.
 
         Returns KnowledgeAssessment with correlation, bias, noise,
@@ -278,6 +280,8 @@ class Observer:
         Args:
             external_dof: The external DoF to assess knowledge of.
             min_samples: Minimum observations required.
+            max_features: Maximum internal DoFs to use jointly.
+                1 = single best feature (default). >1 = multiple regression.
 
         Returns:
             KnowledgeAssessment or None.
@@ -285,7 +289,8 @@ class Observer:
         from ro_framework.knowledge.assessment import compute_knowledge
 
         return compute_knowledge(
-            self.observation_log, external_dof, self.internal_dofs, min_samples
+            self.observation_log, external_dof, self.internal_dofs,
+            min_samples, max_features,
         )
 
     def know(
@@ -294,6 +299,7 @@ class Observer:
         threshold: float = 0.7,
         min_calibration: float = 0.4,
         min_samples: int = 10,
+        max_features: int = 1,
     ) -> bool:
         """Check if observer has knowledge of an external DoF.
 
@@ -304,11 +310,12 @@ class Observer:
             threshold: Minimum correlation for knowledge.
             min_calibration: Minimum calibration for knowledge.
             min_samples: Minimum observations required.
+            max_features: Maximum internal DoFs to use jointly.
 
         Returns:
             True if knowledge criteria are met.
         """
-        assessment = self.assess_knowledge(external_dof, min_samples)
+        assessment = self.assess_knowledge(external_dof, min_samples, max_features)
         if assessment is None:
             return False
         return assessment.correlation >= threshold and assessment.calibration >= min_calibration

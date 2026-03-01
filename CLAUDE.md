@@ -245,4 +245,4 @@ Use the framework as introspection machinery inside a training loop. Depends on 
 - [ ] Multimodal bridge — assess alignment between visual and linguistic feature spaces
 
 ## Current Status
-**v0.2.1-dev** — Phase 9 in progress (319/319 tests passing). SAE integration working on GPT-2.
+**v0.2.1-dev** — Phase 9 complete (319/319 tests passing). SAE integration validated on GPT-2. Next: SAE training tools, then Phase 10.

@@ -231,9 +231,6 @@ This is a v0.2.1-dev research library. Be aware of these issues:
 
 Make the library work on real models, not just toys.
 
-- SAE integration — load pre-trained SAEs (via SAELens/TransformerLens), compose with model layer as world_model mapping
-- GPT-2 proof of concept — wrap GPT-2 + pre-trained SAE, run `assess_knowledge` on real learned features, produce meaningful K tuples
-- Feature-level knowledge profiles — "this model has strong knowledge of feature X, false knowledge of feature Y"
 - SAE training tools — train SAEs on arbitrary model activations
 
 ### Phase 10: Self-Aware Training (Direction B)
@@ -250,6 +247,13 @@ Use the framework as introspection machinery inside a training loop.
 - Causal vs. correlational knowledge distinction
 - Information-theoretic knowledge bounds given observer resolution and boundary
 - Automatic DoF discovery — combine ActivationTracker feature emergence with SAE decomposition
+
+Completed (Phase 9):
+
+- SAE integration — `SAEObserver` wraps TransformerLens + SAELens, SAE feature activations become internal DoFs
+- GPT-2 proof of concept — code detection shows strong knowledge (ρ=0.91–0.97), sentiment weak with small datasets (ρ=0.16–0.23)
+- Feature-level knowledge profiles — `top_features_for()` ranks SAE features by correlation with any label
+- Multi-layer comparison — knowledge assessed across layers 0, 4, 8, 11; code detection strengthens with depth
 
 Completed (Phase 8):
 

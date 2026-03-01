@@ -38,16 +38,23 @@ def _make_observer_and_tracker(n_ext=2, n_int=4, log_capacity=200):
     return observer, tracker, ext_dofs, int_dofs
 
 
-def _populate_correlated(observer, ext_dofs, int_dofs, n=50, noise=0.0, bias=0.0):
+def _populate_correlated(observer, ext_dofs, int_dofs, n=50, noise=0.0, bias=0.0,
+                         heteroscedastic=False):
     """Populate observation log with correlated data.
 
     int_0 tracks ext_0 with optional noise and bias.
+    If heteroscedastic=True, noise scales with |ext_val| (position-dependent).
     """
     rng = np.random.default_rng(42)
     observer.clear_memory()
     for i in range(n):
         ext_val = rng.uniform(-1, 1)
-        int_val = ext_val + bias + noise * rng.normal()
+        if heteroscedastic:
+            # Noise proportional to position — creates low calibration
+            scale = abs(ext_val) * noise + 0.01
+        else:
+            scale = noise
+        int_val = ext_val + bias + scale * rng.normal()
         observer.observation_log.append(ObservationPair(
             external_state=State(values={
                 ext_dofs[0]: ext_val,
@@ -126,17 +133,18 @@ class TestKnowledgeRegularizer:
     def test_memorized_increases_weight_decay(self):
         """High ρ + low C → memorized → increased weight decay."""
         obs, tracker, ext_dofs, int_dofs = _make_observer_and_tracker()
-        # noise=0.7 gives ρ≈0.65, C≈0.58 — "weak" by default thresholds
-        # Use relaxed thresholds so this classifies as memorized
-        _populate_correlated(obs, ext_dofs, int_dofs, n=50, noise=0.7)
+        # Heteroscedastic noise: noise scales with position → low calibration C
+        # but still correlated → triggers "memorized" classification
+        _populate_correlated(obs, ext_dofs, int_dofs, n=50, noise=1.5,
+                             heteroscedastic=True)
         tracker.step(0)
 
         reg = KnowledgeRegularizer(
             tracker,
             base_weight_decay=1.0,
             memorized_multiplier=3.0,
-            memorized_min_correlation=0.5,
-            memorized_max_calibration=0.6,
+            memorized_min_correlation=0.3,
+            memorized_max_calibration=0.7,
         )
         reg.update(0)
 

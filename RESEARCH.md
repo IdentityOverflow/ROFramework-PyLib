@@ -174,6 +174,37 @@ Global weight decay modulation is also too blunt — grokking depends on the com
 
 See [examples/11_knowledge_guided_training.py](examples/11_knowledge_guided_training.py) (sum-averaged), [examples/11b_knowledge_guided_raw.py](examples/11b_knowledge_guided_raw.py) (raw data).
 
+## SAE Knowledge Assessment on GPT-2 (Phase 9)
+
+`SAEObserver` bridges the framework from toy models to real ones by integrating pre-trained Sparse Autoencoders (SAELens) with language models (TransformerLens). External DoFs are user-provided labels (sentiment, is_code). Internal DoFs are SAE feature activations. Knowledge assessment answers: which SAE features track each label, and with what correlation, bias, noise, and calibration?
+
+### Setup
+
+GPT-2 small wrapped with pre-trained SAEs from the `gpt2-small-res-jb` release (24,576 features per layer). Dataset: 60 labeled texts (20 positive sentiment, 20 negative sentiment, 20 code snippets). SAE features extracted at layers 0, 4, 8, 11 with mean-pooling across tokens.
+
+### Results
+
+**Code detection shows strong knowledge.** The best SAE features at layer 8 correlate with the `is_code` label at ρ = 0.91–0.97 — "strong" knowledge. Multiple features independently track code vs. prose, suggesting the model has redundant representations for this distinction.
+
+**Sentiment detection is weak.** Best sentiment correlations are ρ = 0.16–0.23 — "uncertain" knowledge. This is expected: GPT-2 small was not fine-tuned for sentiment analysis, and 40 sentiment examples (20 positive + 20 negative) is a small dataset. The framework correctly reports this as uncertain rather than falsely strong.
+
+**Knowledge strengthens with depth.** Code detection ρ increases monotonically from layer 0 to layer 11, consistent with the hierarchical decomposition hypothesis: abstract features compose through layers, becoming more explicit at deeper layers.
+
+**K tuples are richer than probe accuracy.** For code detection, the top features show:
+- High ρ (0.91+) with low systematic error (ε ≈ 0) — genuine tracking, not biased
+- Low random error (σ ≈ 0.1) — consistent, not noisy
+- Moderate calibration (C ≈ 0.5–0.7) — uncertainty estimates are reasonable
+
+This four-dimensional profile per feature is more informative than a single probe accuracy number.
+
+### Implications
+
+The framework's abstractions (DoFs, observers, knowledge assessment) transfer directly to real models via SAE decomposition. The key bridge: SAE features are atomic DoFs in the framework's sense — they have magnitude, can be tracked over time, and their correlation with external properties can be assessed.
+
+The weak sentiment result is a feature, not a bug: the framework correctly reports that GPT-2 small doesn't strongly encode sentiment in its SAE features with this small dataset. More labeled data and/or a fine-tuned model would likely show stronger sentiment knowledge.
+
+See [examples/12_sae_knowledge.py](examples/12_sae_knowledge.py).
+
 ## Open Questions
 
 1. **Readout projection during training.** Does readout-projected PCA find emerging features during training, not just post-hoc? The output weights themselves are changing, so the projection subspace evolves. Does this help or hurt? Need to test temporal dynamics with the evolving readout space.

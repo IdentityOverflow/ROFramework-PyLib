@@ -323,3 +323,323 @@ class TestObserverKnowledge:
 
         unknown_dof = PolarDoF(name="unknown")
         assert obs.know(unknown_dof) is False
+
+
+# ---------------------------------------------------------------------------
+# Reachability of all four knowledge types from compute_knowledge()
+# ---------------------------------------------------------------------------
+
+
+class TestKnowledgeTypeReachability:
+    """Verify that all four knowledge types are genuinely reachable
+    from compute_knowledge(), not just from hand-constructed assessments."""
+
+    def test_strong_from_computation(self, ext_dof, int_dof):
+        """Clean linear tracking → strong knowledge."""
+        rng = np.random.default_rng(42)
+        ext_vals = rng.uniform(-10, 10, 100).tolist()
+        # Small uniform noise — good linear fit, homoscedastic
+        int_vals = [v + rng.normal(0, 0.5) for v in ext_vals]
+
+        log = _build_log(ext_dof, int_dof, ext_vals, int_vals)
+        result = compute_knowledge(log, ext_dof, [int_dof], min_samples=10)
+
+        assert result is not None
+        assert result.knowledge_type == "strong", (
+            f"Expected 'strong', got '{result.knowledge_type}' "
+            f"(ρ={result.correlation:.3f}, ε={result.systematic_error:.3f}, "
+            f"σ={result.random_error:.3f}, C={result.calibration:.3f})"
+        )
+
+    def test_false_from_computation(self, ext_dof, int_dof):
+        """Heteroscedastic tracking (confound) → false knowledge.
+
+        Feature correlates with label but error magnitude depends on position:
+        accurate for positive ext values, wildly wrong for negative ones.
+        """
+        rng = np.random.default_rng(42)
+        ext_vals = rng.uniform(-10, 10, 200).tolist()
+        # Heteroscedastic: noise grows with |ext| in one direction
+        int_vals = []
+        for v in ext_vals:
+            if v > 0:
+                int_vals.append(v + rng.normal(0, 0.3))  # accurate
+            else:
+                int_vals.append(v + rng.normal(0, 5.0))  # very noisy
+        # Still correlated overall, but errors cluster at one end
+
+        log = _build_log(ext_dof, int_dof, ext_vals, int_vals)
+        result = compute_knowledge(log, ext_dof, [int_dof], min_samples=10)
+
+        assert result is not None
+        assert result.correlation >= 0.7, (
+            f"Expected ρ ≥ 0.7, got {result.correlation:.3f}"
+        )
+        assert result.systematic_error >= 0.3, (
+            f"Expected ε ≥ 0.3 (heteroscedastic), got {result.systematic_error:.3f}"
+        )
+        assert result.knowledge_type == "false", (
+            f"Expected 'false', got '{result.knowledge_type}' "
+            f"(ρ={result.correlation:.3f}, ε={result.systematic_error:.3f}, "
+            f"σ={result.random_error:.3f}, C={result.calibration:.3f})"
+        )
+
+    def test_uncertain_from_computation(self, ext_dof, int_dof):
+        """Uncorrelated but homoscedastic → uncertain knowledge.
+
+        No tracking, but the error structure is uniform — the observer
+        is consistently wrong by the same amount everywhere.
+        """
+        rng = np.random.default_rng(42)
+        n = 200
+        ext_vals = rng.uniform(-10, 10, n).tolist()
+        # Independent of ext, but uniform noise level
+        int_vals = rng.normal(0, 3, n).tolist()
+
+        log = _build_log(ext_dof, int_dof, ext_vals, int_vals)
+        result = compute_knowledge(log, ext_dof, [int_dof], min_samples=10)
+
+        assert result is not None
+        assert result.correlation < 0.5, (
+            f"Expected ρ < 0.5, got {result.correlation:.3f}"
+        )
+        assert result.calibration >= 0.5, (
+            f"Expected C ≥ 0.5 (homoscedastic noise), got {result.calibration:.3f}"
+        )
+        assert result.knowledge_type == "uncertain", (
+            f"Expected 'uncertain', got '{result.knowledge_type}' "
+            f"(ρ={result.correlation:.3f}, ε={result.systematic_error:.3f}, "
+            f"σ={result.random_error:.3f}, C={result.calibration:.3f})"
+        )
+
+    def test_weak_from_computation(self, ext_dof, int_dof):
+        """Moderate correlation with heteroscedastic noise → weak knowledge."""
+        rng = np.random.default_rng(42)
+        ext_vals = rng.uniform(-10, 10, 200).tolist()
+        # Moderate correlation + heteroscedastic noise → moderate ρ, low C
+        int_vals = [v * 0.5 + rng.normal(0, abs(v) * 0.5 + 0.5) for v in ext_vals]
+
+        log = _build_log(ext_dof, int_dof, ext_vals, int_vals)
+        result = compute_knowledge(log, ext_dof, [int_dof], min_samples=10)
+
+        assert result is not None
+        assert result.knowledge_type == "weak", (
+            f"Expected 'weak', got '{result.knowledge_type}' "
+            f"(ρ={result.correlation:.3f}, ε={result.systematic_error:.3f}, "
+            f"σ={result.random_error:.3f}, C={result.calibration:.3f})"
+        )
+
+    def test_heteroscedastic_errors_increase_epsilon(self, ext_dof, int_dof):
+        """Errors that grow with external value → detectable ε."""
+        rng = np.random.default_rng(42)
+        ext_vals = rng.uniform(0, 10, 100).tolist()
+        # Noise proportional to ext value (heteroscedastic)
+        int_vals = [v + rng.normal(0, v * 0.3 + 0.01) for v in ext_vals]
+
+        log = _build_log(ext_dof, int_dof, ext_vals, int_vals)
+        result = compute_knowledge(log, ext_dof, [int_dof], min_samples=10)
+
+        assert result is not None
+        assert result.systematic_error > 0.1, (
+            f"Expected ε > 0.1 for heteroscedastic data, got {result.systematic_error:.3f}"
+        )
+
+    def test_homoscedastic_noise_gives_high_calibration(self, ext_dof, int_dof):
+        """Uniform noise level → high calibration C, regardless of ρ."""
+        rng = np.random.default_rng(42)
+        ext_vals = rng.uniform(-10, 10, 200).tolist()
+        # Moderate correlation with uniform noise
+        int_vals = [v + rng.normal(0, 3) for v in ext_vals]
+
+        log = _build_log(ext_dof, int_dof, ext_vals, int_vals)
+        result = compute_knowledge(log, ext_dof, [int_dof], min_samples=10)
+
+        assert result is not None
+        assert result.calibration >= 0.5, (
+            f"Expected C ≥ 0.5 for homoscedastic data, got {result.calibration:.3f}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Multi-feature knowledge assessment
+# ---------------------------------------------------------------------------
+
+
+def _build_multi_log(ext_dof, int_dofs, ext_values, int_values_list, capacity=1000):
+    """Build ObservationLog with multiple internal DoFs.
+
+    Args:
+        ext_dof: External DoF.
+        int_dofs: List of internal DoFs.
+        ext_values: List of external values.
+        int_values_list: List of lists, one per internal DoF.
+    """
+    log = ObservationLog(capacity=capacity)
+    for i, ev in enumerate(ext_values):
+        int_state = {dof: vals[i] for dof, vals in zip(int_dofs, int_values_list)}
+        log.append(ObservationPair(
+            external_state=State(values={ext_dof: ev}),
+            internal_state=State(values=int_state),
+            timestamp=float(i),
+        ))
+    return log
+
+
+class TestMultiFeatureKnowledge:
+    """Tests for multi-feature knowledge assessment (max_features > 1)."""
+
+    def test_multi_feature_increases_correlation(self):
+        """Multiple regression with jointly informative features gives higher ρ."""
+        rng = np.random.default_rng(42)
+        ext_dof = PolarDoF(name="target")
+        int_dofs = [PolarDoF(name=f"feat_{i}") for i in range(3)]
+
+        n = 200
+        ext_vals = rng.uniform(-5, 5, n).tolist()
+
+        # Each feature captures part of the signal: ext ≈ 0.4*f0 + 0.4*f1 + 0.4*f2
+        # Individual ρ ≈ 0.4-0.5, joint ρ should be much higher
+        int_vals_list = []
+        for _ in range(3):
+            vals = [v * 0.4 + rng.normal(0, 2.0) for v in ext_vals]
+            int_vals_list.append(vals)
+
+        log = _build_multi_log(ext_dof, int_dofs, ext_vals, int_vals_list)
+
+        # Single-feature assessment
+        single = compute_knowledge(log, ext_dof, int_dofs, max_features=1)
+        assert single is not None
+
+        # Multi-feature assessment
+        multi = compute_knowledge(log, ext_dof, int_dofs, max_features=3)
+        assert multi is not None
+
+        assert multi.correlation > single.correlation, (
+            f"Multi-feature ρ={multi.correlation:.3f} should exceed "
+            f"single-feature ρ={single.correlation:.3f}"
+        )
+
+    def test_distributed_knowledge_becomes_strong(self):
+        """Distributed signal (no single strong feature) classified as 'strong' with multi-feature."""
+        rng = np.random.default_rng(42)
+        ext_dof = PolarDoF(name="is_question")
+        int_dofs = [PolarDoF(name=f"syntax_{i}") for i in range(5)]
+
+        n = 200
+        ext_vals = rng.uniform(-1, 1, n).tolist()
+
+        # 5 features each partially correlated with INDEPENDENT noise
+        # Individual ρ ≈ 0.4, but jointly they explain most of the variance
+        int_vals_list = []
+        for _ in range(5):
+            vals = [v * 0.5 + rng.normal(0, 0.7) for v in ext_vals]
+            int_vals_list.append(vals)
+
+        log = _build_multi_log(ext_dof, int_dofs, ext_vals, int_vals_list)
+
+        single = compute_knowledge(log, ext_dof, int_dofs, max_features=1)
+        multi = compute_knowledge(log, ext_dof, int_dofs, max_features=5)
+
+        assert single is not None
+        assert multi is not None
+
+        # Single feature: should be weak or uncertain (ρ < 0.7)
+        assert single.correlation < 0.7
+        # Multi feature: should be strong (ρ ≥ 0.7)
+        assert multi.knowledge_type == "strong", (
+            f"Expected 'strong' with multi-feature, got '{multi.knowledge_type}' "
+            f"(ρ={multi.correlation:.3f})"
+        )
+
+    def test_max_features_1_backward_compatible(self):
+        """max_features=1 gives same result as the old default."""
+        rng = np.random.default_rng(42)
+        ext_dof = PolarDoF(name="ext")
+        int_dofs = [PolarDoF(name=f"int_{i}") for i in range(3)]
+
+        n = 100
+        ext_vals = rng.uniform(-5, 5, n).tolist()
+        int_vals_list = [
+            [v + rng.normal(0, 1) for v in ext_vals],
+            [rng.normal(0, 3) for _ in ext_vals],
+            [rng.normal(0, 3) for _ in ext_vals],
+        ]
+
+        log = _build_multi_log(ext_dof, int_dofs, ext_vals, int_vals_list)
+
+        default = compute_knowledge(log, ext_dof, int_dofs)
+        explicit = compute_knowledge(log, ext_dof, int_dofs, max_features=1)
+
+        assert default is not None and explicit is not None
+        assert default.correlation == explicit.correlation
+        assert default.best_internal_dof == explicit.best_internal_dof
+        assert default.contributing_dofs == ()
+        assert explicit.contributing_dofs == ()
+
+    def test_contributing_dofs_populated(self):
+        """Multi-feature assessment populates contributing_dofs."""
+        rng = np.random.default_rng(42)
+        ext_dof = PolarDoF(name="ext")
+        int_dofs = [PolarDoF(name=f"int_{i}") for i in range(3)]
+
+        n = 100
+        ext_vals = rng.uniform(-5, 5, n).tolist()
+        int_vals_list = [
+            [v + rng.normal(0, 1) for v in ext_vals],
+            [v * 0.5 + rng.normal(0, 2) for v in ext_vals],
+            [rng.normal(0, 5) for _ in ext_vals],
+        ]
+
+        log = _build_multi_log(ext_dof, int_dofs, ext_vals, int_vals_list)
+        result = compute_knowledge(log, ext_dof, int_dofs, max_features=3)
+
+        assert result is not None
+        assert len(result.contributing_dofs) > 0
+        assert len(result.contributing_dofs) <= 3
+        # All contributing DoFs should be from the internal DoFs
+        for dof in result.contributing_dofs:
+            assert dof in int_dofs
+
+    def test_caps_features_at_n_over_10(self):
+        """Multi-feature caps k at n_samples // 10 to prevent overfitting."""
+        rng = np.random.default_rng(42)
+        ext_dof = PolarDoF(name="ext")
+        # 20 features but only 50 samples → should cap at 5
+        int_dofs = [PolarDoF(name=f"int_{i}") for i in range(20)]
+
+        n = 50
+        ext_vals = rng.uniform(-5, 5, n).tolist()
+        int_vals_list = [
+            [v * (0.3 + 0.05 * i) + rng.normal(0, 2) for v in ext_vals]
+            for i in range(20)
+        ]
+
+        log = _build_multi_log(ext_dof, int_dofs, ext_vals, int_vals_list)
+        result = compute_knowledge(log, ext_dof, int_dofs, max_features=20)
+
+        assert result is not None
+        assert len(result.contributing_dofs) <= n // 10
+
+    def test_multi_feature_error_metrics_computed(self):
+        """Multi-feature assessment computes ε, σ, C correctly."""
+        rng = np.random.default_rng(42)
+        ext_dof = PolarDoF(name="ext")
+        int_dofs = [PolarDoF(name=f"int_{i}") for i in range(3)]
+
+        n = 200
+        ext_vals = rng.uniform(-5, 5, n).tolist()
+        # Clean uniform noise → should give high C
+        int_vals_list = [
+            [v + rng.normal(0, 0.5) for v in ext_vals],
+            [v * 0.8 + rng.normal(0, 0.5) for v in ext_vals],
+            [rng.normal(0, 5) for _ in ext_vals],
+        ]
+
+        log = _build_multi_log(ext_dof, int_dofs, ext_vals, int_vals_list)
+        result = compute_knowledge(log, ext_dof, int_dofs, max_features=3)
+
+        assert result is not None
+        assert result.correlation > 0.7
+        assert result.random_error >= 0.0
+        assert 0.0 <= result.calibration <= 1.0
+        assert 0.0 <= result.systematic_error <= 1.0

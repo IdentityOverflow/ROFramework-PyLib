@@ -305,16 +305,20 @@ class SAEObserver:
         return [self.observe_text(t, l) for t, l in zip(texts, labels_list)]
 
     def assess_knowledge(
-        self, label_dof: DoF, min_samples: int = 10
+        self, label_dof: DoF, min_samples: int = 10, max_features: int = 10,
     ) -> Optional[KnowledgeAssessment]:
         """Assess how well SAE features track a specific label.
 
-        Returns the best K(d_ext) across all tracked SAE features:
-        which feature has the highest correlation with the label?
+        Uses multiple regression with top-k features jointly, so ρ reflects
+        the observer's *combined* knowledge — not just one feature's tracking.
+        This is important for distributed representations where no single SAE
+        feature captures the full label (e.g., sentiment, question syntax).
 
         Args:
             label_dof: The external DoF (label) to assess knowledge of.
             min_samples: Minimum observations required.
+            max_features: Maximum features for joint regression (default 10).
+                Use 1 for single-feature assessment.
 
         Returns:
             KnowledgeAssessment or None if insufficient data.
@@ -324,6 +328,7 @@ class SAEObserver:
             label_dof,
             self.feature_dofs,
             min_samples,
+            max_features,
         )
 
     def top_features_for(
