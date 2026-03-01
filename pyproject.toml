@@ -37,6 +37,11 @@ torch = [
     "torch>=2.0.0",
 ]
 
+sae = [
+    "torch>=2.0.0",
+    "transformer-lens>=2.0.0",
+    "sae-lens>=4.0.0",
+]
 
 visualization = [
     "matplotlib>=3.7.0",
@@ -69,7 +74,7 @@ notebooks = [
 ]
 
 all = [
-    "ro-framework[torch,visualization,docs,dev,notebooks]"
+    "ro-framework[torch,sae,visualization,docs,dev,notebooks]"
 ]
 
 [project.urls]

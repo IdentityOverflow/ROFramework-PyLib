@@ -159,11 +159,12 @@ src/ro_framework/
 │   └── measures.py
 ├── consciousness/     # ConsciousnessEvaluator, ConsciousnessMetrics
 │   └── evaluation.py
-└── integration/       # PyTorch bridge, wrappers, activation analysis, training
+└── integration/       # PyTorch bridge, wrappers, activation analysis, SAE
     ├── torch.py
     ├── wrappers.py
     ├── activation_tracker.py
-    └── training.py
+    ├── training.py
+    └── sae.py
 ```
 
 ## Key Features
@@ -220,7 +221,7 @@ This is a v0.2.1-dev research library. Be aware of these issues:
 
 **Distributed representations require feature extraction.** In real neural networks, interpretable features are not stored in individual neurons — they are directions across many neurons (superposition). The framework assumes each DoF is a single scalar value, which is correct *after* feature extraction but not for raw activations. To wrap a real model, the world_model mapping must include a feature extraction step (e.g., a Sparse Autoencoder or linear probe) that decomposes distributed activations into monosemantic features. See [Anthropic's work on dictionary learning](https://www.anthropic.com/research/mapping-mind-language-model) for the approach this framework is designed to integrate with. Pre-trained SAEs exist for some open models (GPT-2, Pythia, Gemma) but are model-specific and layer-specific — an SAE trained on one model cannot be reused for another.
 
-**Only tested on toy models.** All examples and tests use small MLPs, identity mappings, and synthetic data. There is no validated example of wrapping a real pre-trained model with SAE feature extraction and producing meaningful knowledge assessments.
+**Validated on GPT-2 small only.** SAE integration (`SAEObserver`) has been tested on GPT-2 small with pre-trained SAEs from the `gpt2-small-res-jb` release. Code detection shows strong knowledge (ρ=0.91-0.97), sentiment detection is weak with small datasets (ρ=0.16-0.23). Larger models and more labeled data have not been tested.
 
 **Single-observer only.** The theory describes observers observing each other and observer-relative knowledge. The library only supports individual observers — no multi-observer comparison or ensemble analysis.
 

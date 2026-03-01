@@ -22,3 +22,12 @@ try:
 except ImportError:
     # PyTorch not installed
     __all__ = []
+
+# SAE integration (only import if sae-lens is available)
+try:
+    from ro_framework.integration.sae import SAEObserver, create_multilayer_sae_observers
+
+    __all__ += ["SAEObserver", "create_multilayer_sae_observers"]
+except ImportError:
+    # sae-lens/transformer-lens not installed
+    pass

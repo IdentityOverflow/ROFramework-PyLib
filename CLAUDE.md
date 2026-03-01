@@ -211,18 +211,29 @@ src/ro_framework/
 ├── integration/
 │   ├── torch.py               # existing TorchObserver
 │   ├── wrappers.py            # existing wrap_callable, wrap_torch_model
-│   ├── activation_tracker.py  # NEW: ActivationTracker, discover_dofs (experimental)
-│   └── training.py            # NEW: KnowledgeRegularizer (experimental, negative result)
+│   ├── activation_tracker.py  # ActivationTracker, discover_dofs (experimental)
+│   ├── training.py            # KnowledgeRegularizer (experimental, negative result)
+│   └── sae.py                 # NEW: SAEObserver, create_multilayer_sae_observers
 ```
 
 ### Phase 9: Interpretability Dashboard (Direction A)
 
 Make the library work on real models. SAE integration is the bridge from toy to real.
 
-- [ ] SAE integration — load pre-trained SAEs (SAELens/TransformerLens), SAE features → DoFs
-- [ ] GPT-2 proof of concept — wrap GPT-2 + pre-trained SAE, `assess_knowledge` on real features
-- [ ] Feature-level knowledge profiles — meaningful K tuples for real learned features
+- [x] SAE integration — `integration/sae.py`: `SAEObserver`, `create_multilayer_sae_observers`
+  - Loads pre-trained SAEs (SAELens/TransformerLens), SAE features → ScalarDoFs
+  - Bypasses world_model: constructs (label, SAE features) observation pairs directly
+  - Supports mean/last/max aggregation across token sequence
+  - Optional top-K feature filtering for large SAEs
+- [x] GPT-2 proof of concept — `examples/12_sae_knowledge.py`
+  - GPT-2 small + `gpt2-small-res-jb` SAE, 60 labeled texts (sentiment, code)
+  - Code detection: strong knowledge (ρ=0.91-0.97) at all layers
+  - Sentiment: weak knowledge (ρ=0.16-0.23) — honest result, needs more data
+- [x] Feature-level knowledge profiles — `top_features_for()` returns sorted K tuples per SAE feature
+- [x] Multi-layer comparison — knowledge across layers 0, 4, 8, 11 showing hierarchical decomposition
 - [ ] SAE training tools — train SAEs on arbitrary model activations
+- [x] Tests: 28 tests in `tests/unit/test_sae.py` (mocked model/SAE, no GPU needed)
+- [x] All tests pass (319/319)
 
 ### Phase 10: Self-Aware Training (Direction B)
 
@@ -234,4 +245,4 @@ Use the framework as introspection machinery inside a training loop. Depends on 
 - [ ] Multimodal bridge — assess alignment between visual and linguistic feature spaces
 
 ## Current Status
-**v0.2.1-dev** — Phase 8 complete (291/291 tests passing). Next: Phase 9 (SAE integration).
+**v0.2.1-dev** — Phase 9 in progress (319/319 tests passing). SAE integration working on GPT-2.
