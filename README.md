@@ -37,13 +37,16 @@ Closest existing tools: Uncertainty Toolbox (calibration), Captum/SHAP (saliency
 
 ### Can it be used on LLMs?
 
-Yes, at the embedding/representation level. You'd wrap a model's encoder or a specific layer, feed token embeddings through `observe()`, and assess whether internal representations reliably track specific input features. This is useful for:
+Yes. `SAEObserver` wraps a transformer model (via TransformerLens) with a pre-trained Sparse Autoencoder (via SAELens). You provide labeled texts, and it assesses whether SAE features at any layer track your labels — returning `K(d_ext) = (ρ, ε, σ, C)` instead of just a probe accuracy number. Validated on GPT-2 small with 420 texts across 5 labels (see [docs/research/sae.md](docs/research/sae.md)).
 
-- **Probing**: Does layer N "know" about sentiment? Factuality? You get `(correlation, bias, noise, calibration)` instead of just a probe accuracy number.
-- **Calibration auditing**: Are the model's confidence scores actually calibrated?
+This is useful for:
+
+- **Probing with error decomposition**: Does layer N "know" about code? Formality? You get correlation, systematic bias, noise, and calibration — not just accuracy. GPT-2 layer 0 shows "false" knowledge for code (high ρ but biased), resolved to "strong" by layer 4.
+- **Multi-feature assessment**: Single-feature probes miss distributed representations. `max_features=10` uses multiple regression — code detection jumps from ρ=0.72 (single feature) to ρ=0.95 (10 features jointly).
+- **Layer-by-layer comparison**: Assess knowledge across layers 0, 4, 8, 11 to see how representations form through the model's depth.
 - **Comparing fine-tuned variants**: Same base model, different fine-tunes — which one has stronger/more biased knowledge of a particular feature?
 
-It doesn't work on raw text — you need to pick a numeric representation layer. It's a research tool for interpretability, not a drop-in LLM evaluator.
+It doesn't work on raw text — it operates at the SAE feature level. Pre-trained SAEs are required (available for GPT-2, Pythia, Gemma). It's a research tool for interpretability, not a drop-in LLM evaluator.
 
 ## Installation
 
@@ -144,27 +147,27 @@ print(f"Limitation awareness: {metrics.limitation_awareness:.3f}")
 ## Project Structure
 
 ```
-src/ro_framework/
-├── core/              # DoF, Value, State (typed data model)
-│   ├── dof.py
-│   ├── value.py
-│   └── state.py
-├── observer/          # Observer, ObservationLog, Mapping
-│   ├── observer.py
-│   └── mapping.py
-├── knowledge/         # KnowledgeAssessment, compute_knowledge, trajectory tracking
-│   ├── assessment.py
-│   └── tracker.py
-├── correlation/       # Pearson, MI, temporal, causal detection
-│   └── measures.py
-├── consciousness/     # ConsciousnessEvaluator, ConsciousnessMetrics
-│   └── evaluation.py
-└── integration/       # PyTorch bridge, wrappers, activation analysis, SAE
-    ├── torch.py
-    ├── wrappers.py
-    ├── activation_tracker.py
-    ├── training.py
-    └── sae.py
+ROFramework-PyLib/
+├── src/ro_framework/          # Library
+│   ├── core/                  #   DoF, Value, State (typed data model)
+│   ├── observer/              #   Observer, ObservationLog, Mapping
+│   ├── knowledge/             #   KnowledgeAssessment, compute_knowledge, KnowledgeTracker
+│   ├── correlation/           #   Pearson, MI, temporal, causal detection
+│   ├── consciousness/         #   ConsciousnessEvaluator, ConsciousnessMetrics
+│   └── integration/           #   PyTorch bridge, wrappers, SAE, activation analysis
+├── tests/                     # Unit tests (331 tests)
+├── examples/                  # Library usage demos (01-07)
+├── experiments/               # Research experiments
+│   ├── grokking/              #   Phase 8: knowledge trajectories, denoising, K-guided training
+│   ├── sae/                   #   Phase 9: GPT-2 + SAE knowledge assessment
+│   └── reservoir/             #   Direction C: reservoir computing (planned)
+└── docs/                      # Documentation
+    ├── ro_framework.md        #   Theoretical framework (1500+ lines)
+    ├── organic_cognitive_architecture_oca.md  # OCA multi-reservoir design
+    └── research/              #   Research findings (mirrors experiments/)
+        ├── grokking.md
+        ├── sae.md
+        └── reservoir.md
 ```
 
 ## Key Features
@@ -203,23 +206,26 @@ Every `observe()` call records an `ObservationPair(external_state, internal_stat
 ## Running Tests
 
 ```bash
-# All tests
+# All tests (331 tests)
 pytest tests/ -v
 
 # Specific module
 pytest tests/unit/test_knowledge.py -v
 
-# Run examples
+# Run examples (library demos, no GPU needed)
 python examples/01_basic_observer.py
-python examples/02_pytorch_conscious_observer.py
 python examples/03_knowledge_assessment.py
+
+# Run experiments (research scripts, some require GPU / SAE models)
+python experiments/grokking/08_knowledge_tracker.py
+python experiments/sae/12b_sae_knowledge_types.py
 ```
 
 ## Known Limitations
 
 This is a v0.2.1-dev research library. Be aware of these issues:
 
-**Distributed representations require feature extraction.** In real neural networks, interpretable features are not stored in individual neurons — they are directions across many neurons (superposition). The framework assumes each DoF is a single scalar value, which is correct *after* feature extraction but not for raw activations. To wrap a real model, the world_model mapping must include a feature extraction step (e.g., a Sparse Autoencoder or linear probe) that decomposes distributed activations into monosemantic features. See [Anthropic's work on dictionary learning](https://www.anthropic.com/research/mapping-mind-language-model) for the approach this framework is designed to integrate with. Pre-trained SAEs exist for some open models (GPT-2, Pythia, Gemma) but are model-specific and layer-specific — an SAE trained on one model cannot be reused for another.
+**Distributed representations require feature extraction.** In real neural networks, interpretable features are directions across many neurons (superposition), not individual neuron activations. The framework's DoFs are scalar values, which is correct *after* feature extraction. For transformer models, `SAEObserver` provides this bridge: it integrates pre-trained Sparse Autoencoders (via SAELens/TransformerLens) to decompose activations into monosemantic SAE features that become internal DoFs. Multi-feature assessment (`max_features=N`) then uses multiple regression to capture knowledge distributed across features. Pre-trained SAEs exist for GPT-2, Pythia, and Gemma but are model-specific and layer-specific — an SAE trained on one model cannot be reused for another. For models without pre-trained SAEs, you'd need to train one first (not yet supported by the library).
 
 **Validated on GPT-2 small only.** SAE integration (`SAEObserver`) has been tested on GPT-2 small with pre-trained SAEs from the `gpt2-small-res-jb` release and 420 labeled texts. Multi-feature assessment (max_features=10) yields: code detection strong (ρ=0.95), formality strong at deeper layers (ρ=0.74), question detection weak with high systematic error (ρ=0.52, ε=0.59), sentiment weak (ρ=0.29). Code detection is biased toward Python-like syntax — SQL/bash weaken detection. Larger models have not been tested.
 
