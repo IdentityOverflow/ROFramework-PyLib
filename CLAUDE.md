@@ -231,9 +231,27 @@ Make the library work on real models. SAE integration is the bridge from toy to 
   - Sentiment: weak knowledge (ρ=0.16-0.23) — honest result, needs more data
 - [x] Feature-level knowledge profiles — `top_features_for()` returns sorted K tuples per SAE feature
 - [x] Multi-layer comparison — knowledge across layers 0, 4, 8, 11 showing hierarchical decomposition
+- [x] Multi-feature knowledge assessment — `compute_knowledge(max_features=N)`
+  - OLS multiple regression with top-k features jointly; ρ = multiple correlation coefficient
+  - k capped at n_samples // 10 to prevent overfitting
+  - `KnowledgeAssessment.contributing_dofs` tracks which features contribute
+  - SAEObserver defaults to max_features=10 (distributed representations)
+  - Observer/KnowledgeTracker pass through max_features (default 1, backward compatible)
+- [x] K tuple error decomposition fix — OLS regression residuals
+  - ε = |Spearman(ext, |residuals|)| (systematic error = heteroscedasticity)
+  - C = 1 - CV(binned |residuals|) (calibration = error uniformity)
+  - All four knowledge types now reachable (strong, weak, false, uncertain)
+- [x] Expanded GPT-2 validation — `examples/12b_sae_knowledge_types.py`
+  - 420 texts, 5 labels, multi-feature assessment across layers 0, 4, 8, 11
+  - is_code: **strong** (ρ=0.949) — clean binary feature, biased toward Python syntax
+  - is_code@L0: **false** (ρ=0.844, ε=0.315) — early representations correlate but with bias
+  - formality: **strong** at L8+ (ρ=0.735, C=0.615) — register detectable in deeper layers
+  - is_question: **weak** (ρ=0.515, ε=0.586) — distributed, high heteroscedastic error
+  - sentiment: **weak** (ρ=0.291) — highly distributed, no strong SAE features
+  - random_label: **weak** (ρ=0.245) — correctly low, no signal
 - [ ] SAE training tools — train SAEs on arbitrary model activations
-- [x] Tests: 28 tests in `tests/unit/test_sae.py` (mocked model/SAE, no GPU needed)
-- [x] All tests pass (319/319)
+- [x] Tests: 28 tests in `tests/unit/test_sae.py`, 6 multi-feature tests in `test_knowledge.py`
+- [x] All tests pass (331/331)
 
 ### Phase 10: Self-Aware Training (Direction B)
 
@@ -245,4 +263,4 @@ Use the framework as introspection machinery inside a training loop. Depends on 
 - [ ] Multimodal bridge — assess alignment between visual and linguistic feature spaces
 
 ## Current Status
-**v0.2.1-dev** — Phase 9 complete (319/319 tests passing). SAE integration validated on GPT-2. Next: SAE training tools, then Phase 10.
+**v0.2.1-dev** — Phase 9 complete (331/331 tests passing). SAE integration validated on GPT-2 with multi-feature assessment. Next: SAE training tools, then Phase 10.

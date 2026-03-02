@@ -221,7 +221,9 @@ This is a v0.2.1-dev research library. Be aware of these issues:
 
 **Distributed representations require feature extraction.** In real neural networks, interpretable features are not stored in individual neurons — they are directions across many neurons (superposition). The framework assumes each DoF is a single scalar value, which is correct *after* feature extraction but not for raw activations. To wrap a real model, the world_model mapping must include a feature extraction step (e.g., a Sparse Autoencoder or linear probe) that decomposes distributed activations into monosemantic features. See [Anthropic's work on dictionary learning](https://www.anthropic.com/research/mapping-mind-language-model) for the approach this framework is designed to integrate with. Pre-trained SAEs exist for some open models (GPT-2, Pythia, Gemma) but are model-specific and layer-specific — an SAE trained on one model cannot be reused for another.
 
-**Validated on GPT-2 small only.** SAE integration (`SAEObserver`) has been tested on GPT-2 small with pre-trained SAEs from the `gpt2-small-res-jb` release. Code detection shows strong knowledge (ρ=0.91-0.97), sentiment detection is weak with small datasets (ρ=0.16-0.23). Larger models and more labeled data have not been tested.
+**Validated on GPT-2 small only.** SAE integration (`SAEObserver`) has been tested on GPT-2 small with pre-trained SAEs from the `gpt2-small-res-jb` release and 420 labeled texts. Multi-feature assessment (max_features=10) yields: code detection strong (ρ=0.95), formality strong at deeper layers (ρ=0.74), question detection weak with high systematic error (ρ=0.52, ε=0.59), sentiment weak (ρ=0.29). Code detection is biased toward Python-like syntax — SQL/bash weaken detection. Larger models have not been tested.
+
+**Token aggregation loses positional information.** SAEObserver mean-pools SAE features across the token sequence. This discards positional signal — e.g., a question mark at the final position is highly informative but gets averaged away. This likely explains why question detection underperforms despite GPT-2 clearly "knowing" questions.
 
 **Single-observer only.** The theory describes observers observing each other and observer-relative knowledge. The library only supports individual observers — no multi-observer comparison or ensemble analysis.
 
@@ -251,9 +253,11 @@ Use the framework as introspection machinery inside a training loop.
 Completed (Phase 9):
 
 - SAE integration — `SAEObserver` wraps TransformerLens + SAELens, SAE feature activations become internal DoFs
-- GPT-2 proof of concept — code detection shows strong knowledge (ρ=0.91–0.97), sentiment weak with small datasets (ρ=0.16–0.23)
+- Multi-feature knowledge assessment — `compute_knowledge(max_features=N)` uses multiple regression to capture distributed representations
+- K tuple error decomposition — OLS residual-based ε (heteroscedasticity) and C (error uniformity); all four knowledge types reachable
+- GPT-2 validation (420 texts, 5 labels) — code: strong (ρ=0.95), formality: strong at L8+ (ρ=0.74), questions: weak with high ε, sentiment: weak, random: weak
 - Feature-level knowledge profiles — `top_features_for()` ranks SAE features by correlation with any label
-- Multi-layer comparison — knowledge assessed across layers 0, 4, 8, 11; code detection strengthens with depth
+- Multi-layer comparison — knowledge assessed across layers 0, 4, 8, 11; "false" knowledge at layer 0 for code (bias resolved by layer 4)
 
 Completed (Phase 8):
 
