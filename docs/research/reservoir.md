@@ -65,40 +65,44 @@ The "single-observer only" limitation in the current library would be addressed 
 
 ### RC-1: Single Reservoir on Modular Addition
 
-The same task as Phase 8a, but with an Echo State Network instead of an MLP. This is the baseline experiment that connects everything we've learned to RC.
+The same task as Phase 8a, but with a fixed random reservoir instead of a fully trainable MLP. This became the first successful RC baseline for modular addition, but only after relaxing the original "pure linear readout" constraint.
 
-**Setup:**
-- Echo State Network: N reservoir neurons, fixed random recurrent weights W, spectral radius tuned near 1.0
-- Input: one-hot encoded (a, b) pairs, a+b mod p (p=97)
-- Readout: linear layer from reservoir state to p-class logits, trained with gradient descent or ridge regression
-- Track K(d_ext) on reservoir states during readout training
+**Final setup that worked:**
+- Reservoir: 729 neurons, fixed random `W_in`, fixed random recurrent `W_res`, fixed random bias
+- Dynamics: sequential ESN update, one-hot `a` then one-hot `b`, with 5 recurrent settle steps per symbol
+- Spectral radius: 0.99
+- Input scaling: 0.1
+- Train/test split: 75/25 over all `(a, b)` pairs mod 97
+- Readout: trainable nonlinear head `Linear(729→729) → ReLU → Linear(729→97)`
+- Optimizer: AdamW, lr = `5e-3`, weight decay = `1.2`
+- Knowledge tracking: `K(d_ext)` on sum-averaged readout hidden features, not raw logits
 
-**Key questions:**
-1. Does grokking happen? Or does the linear readout solve it immediately?
-   - MLP grokking required hidden-layer overfitting → generalization transition
-   - RC has no hidden-layer learning, so memorization may look different
-2. Do Fourier modes exist in the reservoir before training?
-   - Eigendecomposition of W gives the reservoir's natural modes
-   - Do any modes have frequencies near 2πk/p?
-3. Does the readout learn to select the right reservoir modes?
-   - Compare readout weights to reservoir eigenvectors
-   - K(d_ext) per Fourier feature: is it "strong" before or after readout training?
-4. Does K-guided training work in RC?
-   - Phase 8c failed on MLP due to feature-behavioral lag
-   - In RC, readout IS behavior — no lag expected
-   - Can K(d_ext) guide which reservoir modes the readout attends to?
+**What failed first:**
+- A linear readout on top of a fixed reservoir memorized the training set but generalized at only `0.0%–0.3%` test accuracy, even when ridge regression nearly saturated train accuracy.
+- Tracking `K(d_ext)` on frozen reservoir states during readout training was a measurement bug: since the reservoir never changed, the trajectory was constant by construction.
+- A two-step sequential ESN with a linear readout was still too weak: it improved over the feedforward random-feature baseline, but remained far from solving the task.
 
-**Expected tools used:**
-- `Observer` wrapping reservoir+readout as mapping
-- `KnowledgeTracker` recording K over readout training
-- `ActivationTracker` on reservoir states (expect stable PCA from epoch 0)
-- `compute_knowledge(max_features=N)` to assess distributed knowledge in reservoir
+**What changed the result:**
+- Adding recurrent settle steps increased the effective nonlinear expansion of the fixed reservoir.
+- Adding a nonlinear readout head let the trained component compose the latent reservoir features rather than only linearly selecting them.
+- Tracking `K` on the readout hidden layer made the knowledge signal follow what was actually learning.
+
+**Result:**
+- Test accuracy rose smoothly from near chance to `99%` by epoch `6750`, reaching `95%` around epoch `3000–3250`.
+- The model hit `100%` train accuracy by epoch `250` but continued improving on test accuracy for thousands of epochs after that, showing a clear memorization-to-generalization transition.
+- Initial latent reservoir knowledge was only moderate: single-feature `ρ ≈ 0.36–0.44`, multi-feature `ρ ≈ 0.65–0.74` on the discovered Fourier frequencies.
+- After training, readout hidden features reached effectively perfect Fourier correlation: all tracked `sin`/`cos` features ended at `ρ = 0.999` with low noise.
+
+**Interpretation:**
+- The reservoir does contain useful latent Fourier signal before training, but not in a form that a linear readout can exploit well enough for modular addition at `p=97`.
+- The successful model is still a valid RC result because the reservoir remains fixed and all learning is confined to the readout head. But it is no longer a "pure ESN + linear probe" result.
+- This means the cleanest current claim is: **fixed reservoirs can support modular-addition generalization, but the readout may need nonlinear composition to extract the latent structure.**
 
 **What we learn:**
-- Whether RC is a cleaner substrate for interpretability than MLPs
-- Whether the denoising problem disappears (no embedding noise)
-- Whether K-guided readout training is viable
-- Baseline for multi-reservoir experiments
+- RC is viable for this task, but the original linear-readout hypothesis was too optimistic.
+- There is still a form of feature-behavior lag inside RC once the readout becomes multi-layer: latent reservoir signal exists before the trained head can use it behaviorally.
+- `K(d_ext)` remains useful, but the probe location matters. On fixed reservoirs it measures capacity; on readout hidden features it measures extracted knowledge.
+- This gives a practical baseline for later multi-reservoir and K-guided experiments: keep reservoir dynamics fixed, but do not artificially cripple the readout.
 
 ### RC-2: Reservoir Spectral Analysis
 
@@ -183,7 +187,14 @@ Scale up to the full Organic Cognitive Architecture with multiple specialized re
 
 ### RC-1: Modular Addition with Echo State Network
 
-**Status:** Not started
+**Status:** Completed
+
+**Summary:**
+- Fixed reservoir + linear readout: failed to generalize (`≤ 0.3%` test)
+- Fixed reservoir + nonlinear readout head: succeeded, reaching `99%` test accuracy on `p=97`
+- Latent Fourier knowledge exists in the reservoir before training, but the trained head must learn to compose it
+
+See [experiments/reservoir/rc1_modular_addition.py](../../experiments/reservoir/rc1_modular_addition.py) and [experiments/reservoir/rc1_findings.md](../../experiments/reservoir/rc1_findings.md).
 
 ---
 

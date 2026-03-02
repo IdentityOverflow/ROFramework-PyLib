@@ -160,7 +160,7 @@ ROFramework-PyLib/
 ├── experiments/               # Research experiments
 │   ├── grokking/              #   Phase 8: knowledge trajectories, denoising, K-guided training
 │   ├── sae/                   #   Phase 9: GPT-2 + SAE knowledge assessment
-│   └── reservoir/             #   Direction C: reservoir computing (planned)
+│   └── reservoir/             #   Direction C: reservoir computing (RC-1 completed)
 └── docs/                      # Documentation
     ├── ro_framework.md        #   Theoretical framework (1500+ lines)
     ├── organic_cognitive_architecture_oca.md  # OCA multi-reservoir design
@@ -202,6 +202,10 @@ Every `observe()` call records an `ObservationPair(external_state, internal_stat
 - `TorchNeuralMapping`: Wraps `nn.Module` with automatic state <-> tensor conversion
 - `TorchObserver`: Batched inference, gradient-based saliency, MC Dropout uncertainty
 - `create_mlp()`: Quick MLP construction with dropout and batch norm options
+
+### Reservoir Computing Research
+
+Direction C now has a working RC baseline on modular addition. A fixed 729-unit reservoir with recurrent settle steps and a trainable nonlinear readout head reaches `99%` test accuracy on `(a + b) mod 97` with a 75/25 split, while a linear readout fails to generalize. This sharpens the current claim: fixed reservoirs can support symbolic generalization, but the readout may need nonlinear composition to extract the latent structure. See [docs/research/reservoir.md](docs/research/reservoir.md).
 
 ## Running Tests
 
@@ -252,9 +256,9 @@ Use the framework as introspection machinery inside a training loop.
 
 ### Reservoir Computing Research (Direction C)
 
-Apply the framework to reservoir computing — the most structurally natural substrate for RO observers. RC implements O = (B, M, R, Mem) as first-class architectural properties: fixed mapping (reservoir), clear boundary (input/readout), explicit memory (fading echoes), measurable resolution (spectral radius). See [docs/research/reservoir.md](docs/research/reservoir.md) for full rationale.
+Apply the framework to reservoir computing — the most structurally natural substrate for RO observers. RC implements O = (B, M, R, Mem) as first-class architectural properties: fixed mapping (reservoir), clear boundary (input/readout), explicit memory (fading echoes), measurable resolution (spectral radius). See [docs/research/reservoir.md](docs/research/reservoir.md) for full rationale and [experiments/reservoir/rc1_findings.md](experiments/reservoir/rc1_findings.md) for the first completed result.
 
-- RC-1: Single reservoir on modular addition — ESN baseline with K trajectory tracking
+- RC-1: Single reservoir on modular addition — completed; fixed reservoir + nonlinear readout reaches 99% test accuracy
 - RC-2: Reservoir spectral analysis — eigenmodes as natural DoFs
 - RC-3: K-guided readout training — retry Phase 8c where feature-behavioral lag shouldn't exist
 - RC-4: Multi-reservoir knowledge assessment — first multi-observer experiment
