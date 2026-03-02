@@ -244,6 +244,17 @@ Use the framework as introspection machinery inside a training loop.
 - Multi-observer comparison — compare knowledge profiles across model checkpoints, fine-tune variants, or ensemble members
 - Multimodal bridge — assess alignment between visual and linguistic feature spaces using observer-relative knowledge
 
+### Reservoir Computing Research (Direction C)
+
+Apply the framework to reservoir computing — the most structurally natural substrate for RO observers. RC implements O = (B, M, R, Mem) as first-class architectural properties: fixed mapping (reservoir), clear boundary (input/readout), explicit memory (fading echoes), measurable resolution (spectral radius). See [docs/research/reservoir.md](docs/research/reservoir.md) for full rationale.
+
+- RC-1: Single reservoir on modular addition — ESN baseline with K trajectory tracking
+- RC-2: Reservoir spectral analysis — eigenmodes as natural DoFs
+- RC-3: K-guided readout training — retry Phase 8c where feature-behavioral lag shouldn't exist
+- RC-4: Multi-reservoir knowledge assessment — first multi-observer experiment
+- RC-5: Reservoir self-model — structural consciousness via self-observing reservoir
+- RC-6: Toward OCA — full multi-reservoir architecture
+
 ### Research directions
 
 - Causal vs. correlational knowledge distinction
@@ -264,13 +275,17 @@ Completed (Phase 8):
 - Knowledge trajectory tracking — `KnowledgeTracker` records K(d_ext) over training epochs, detects grokking/resonance/forgetting
 - Online feature discovery — `ActivationTracker` with Welford's online covariance, PCA stability tracking, eigenvalue spike detection
 - Denoising experiments — readout projection (R=0.907), SFA (R=0.806), tensor unfolding (R=0.850), and others
-- Knowledge-guided training — negative result: K(d_ext) is a feature-level metric unsuitable for steering training dynamics (see [RESEARCH.md](RESEARCH.md))
+- Knowledge-guided training — negative result: K(d_ext) is a feature-level metric unsuitable for steering training dynamics (see [docs/research/grokking.md](docs/research/grokking.md))
 
 ## Documentation
 
-- [Theoretical Framework](ro_framework.md) — Complete theoretical foundation (1500+ lines)
-- [Research Findings](RESEARCH.md) — Empirical results from training-time knowledge dynamics experiments
-- [Examples](examples/) — Runnable demonstrations of each feature
+- [Theoretical Framework](docs/ro_framework.md) — Complete theoretical foundation (1500+ lines)
+- [OCA Architecture](docs/organic_cognitive_architecture_oca.md) — Multi-reservoir cognitive architecture design
+- [Grokking & Feature Discovery](docs/research/grokking.md) — Phase 8 experiments: knowledge trajectories, denoising, K-guided training
+- [SAE Knowledge Assessment](docs/research/sae.md) — Phase 9 experiments: GPT-2 + SAE knowledge profiles
+- [Reservoir Computing](docs/research/reservoir.md) — Direction C: RO-RC alignment and RC research roadmap
+- [Examples](examples/) — Library usage demos (01-07)
+- [Experiments](experiments/) — Research experiment scripts (grokking, SAE, reservoir)
 
 ## License
 

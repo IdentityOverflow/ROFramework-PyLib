@@ -35,7 +35,7 @@ src/ro_framework/
 ```
 
 ## Key Files Reference
-- Theory: `ro_framework.md` (1519 lines, the full theoretical framework)
+- Theory: `docs/ro_framework.md` (1519 lines, the full theoretical framework)
 - Core types: `src/ro_framework/core/dof.py` (DoF hierarchy)
 - Observer: `src/ro_framework/observer/observer.py` (O = B, M, R, Mem)
 - Knowledge: `src/ro_framework/knowledge/assessment.py` (K = ρ, ε, σ, C)
@@ -140,7 +140,7 @@ enabling temporal analysis of how knowledge forms, not just what it is at the en
   - Works with any training loop (PyTorch, numpy, external)
   - Serializable (save/load trajectory with observer)
 - [x] Tests + example: train an MLP on modular addition, show K trajectory through memorization → grokking
-  - `examples/08_knowledge_tracker.py` — full training loop with grokking, GPU support
+  - `experiments/grokking/08_knowledge_tracker.py` — full training loop with grokking, GPU support
   - Smoke test in `tests/unit/test_tracker.py::TestTrackerTorchSmoke`
   - Uses sum-class averaging to remove within-pair noise (89% of variance); per-neuron R reaches 0.97
   - Auto-discovers model's dominant Fourier frequencies via DFT of sum-averaged activations
@@ -171,7 +171,7 @@ resonance that's locking in.
 - [x] Tests: 26 tests in `tests/unit/test_activation_tracker.py`
   - Welford statistics, PCA lifecycle, direction matching, discovery, serialization
   - Torch smoke tests: hook collection, known-rank recovery, readout alignment
-- [x] Example: `examples/09_activation_tracker.py` — grokking with honest comparison to Phase 8a
+- [x] Example: `experiments/grokking/09_activation_tracker.py` — grokking with honest comparison to Phase 8a
   - Stability clearly marks grokking transition (0.4 → 0.999 during generalization)
   - Eigenvalue spikes at memorization onset (epoch 250)
   - Top-variance PCA directions ≠ task-relevant Fourier features (readout alignment drops)
@@ -193,7 +193,7 @@ in the memorization phase should accelerate grokking.
   - `FeatureRegularization` dataclass for per-feature state
 - [x] Tests: 15 tests in `tests/unit/test_training.py`
   - FeatureRegularization creation, KnowledgeRegularizer multipliers, integration with tracker, edge cases
-- [x] Validation experiment: `examples/11_knowledge_guided_training.py`
+- [x] Validation experiment: `experiments/grokking/11a_knowledge_guided_training_experiment.py`
   - **Result: K-guided training was 81% slower** (grokking at epoch 7250 vs baseline 4000)
   - Root cause: feature-behavioral lag — K reaches "strong" at epoch 500 while test acc is 0%
   - Regularizer misinterprets early feature formation as generalization → reduces wd → slows grokking
@@ -225,7 +225,7 @@ Make the library work on real models. SAE integration is the bridge from toy to 
   - Bypasses world_model: constructs (label, SAE features) observation pairs directly
   - Supports mean/last/max aggregation across token sequence
   - Optional top-K feature filtering for large SAEs
-- [x] GPT-2 proof of concept — `examples/12_sae_knowledge.py`
+- [x] GPT-2 proof of concept — `experiments/sae/12a_sae_knowledge.py`
   - GPT-2 small + `gpt2-small-res-jb` SAE, 60 labeled texts (sentiment, code)
   - Code detection: strong knowledge (ρ=0.91-0.97) at all layers
   - Sentiment: weak knowledge (ρ=0.16-0.23) — honest result, needs more data
@@ -241,7 +241,7 @@ Make the library work on real models. SAE integration is the bridge from toy to 
   - ε = |Spearman(ext, |residuals|)| (systematic error = heteroscedasticity)
   - C = 1 - CV(binned |residuals|) (calibration = error uniformity)
   - All four knowledge types now reachable (strong, weak, false, uncertain)
-- [x] Expanded GPT-2 validation — `examples/12b_sae_knowledge_types.py`
+- [x] Expanded GPT-2 validation — `experiments/sae/12b_sae_knowledge_types.py`
   - 420 texts, 5 labels, multi-feature assessment across layers 0, 4, 8, 11
   - is_code: **strong** (ρ=0.949) — clean binary feature, biased toward Python syntax
   - is_code@L0: **false** (ρ=0.844, ε=0.315) — early representations correlate but with bias
@@ -262,5 +262,18 @@ Use the framework as introspection machinery inside a training loop. Depends on 
 - [ ] Multi-observer comparison — knowledge profiles across checkpoints, fine-tune variants, ensembles
 - [ ] Multimodal bridge — assess alignment between visual and linguistic feature spaces
 
+### Reservoir Computing Research (Direction C)
+
+Apply the framework to reservoir computing — the most structurally natural substrate for RO
+observers. RC implements O = (B, M, R, Mem) as first-class architectural properties.
+See `docs/research/reservoir.md` for full rationale and roadmap. Experiments in `experiments/reservoir/`.
+
+- [ ] RC-1: Single reservoir on modular addition — ESN baseline, K trajectory during readout training
+- [ ] RC-2: Reservoir spectral analysis — eigenmodes vs Fourier features, K per mode
+- [ ] RC-3: K-guided readout training — retry Phase 8c where feature-behavioral lag shouldn't exist
+- [ ] RC-4: Multi-reservoir knowledge assessment — first multi-observer experiment
+- [ ] RC-5: Reservoir self-model — structural consciousness via reservoir observing itself
+- [ ] RC-6: Toward OCA — full multi-reservoir architecture with RPE-gated plasticity
+
 ## Current Status
-**v0.2.1-dev** — Phase 9 complete (331/331 tests passing). SAE integration validated on GPT-2 with multi-feature assessment. Next: SAE training tools, then Phase 10.
+**v0.2.1-dev** — Phase 9 complete (331/331 tests passing). SAE integration validated on GPT-2 with multi-feature assessment. Next: RC-1 (reservoir computing experiments), then Phase 10.
