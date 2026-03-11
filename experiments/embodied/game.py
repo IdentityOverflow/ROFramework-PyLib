@@ -515,6 +515,16 @@ def _draw_pause_overlay(screen: pygame.Surface) -> None:
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    import sys as _sys
+    use_connector = "--connect" in _sys.argv
+
+    conn = None
+    if use_connector:
+        from connector import GameConnector
+        conn = GameConnector()
+        conn.start()
+        print(f"[connector] listening on ports {conn._obs_port} / {conn._act_port}")
+
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
     pygame.display.set_caption("RO Framework — Embodied Environment")
@@ -535,11 +545,16 @@ def main() -> None:
 
         player_act = _player_action(world, paused)
 
-        # ── AI action (replace with model output) ─────────────────────────────
-        ai_action = (0.0, 0.0, 0.0)
+        # ── AI action — from connector if active, otherwise zero ───────────────
+        if conn is not None:
+            ai_action = conn.recv_action()
+        else:
+            ai_action = (0.0, 0.0, 0.0)
 
         prev_deaths = world.death_count
         world.step(ai_action=ai_action, player_action=player_act, pat=pat, feed=feed)
+        if conn is not None:
+            conn.send_obs(world)
         if world.death_count > prev_deaths:
             death_flash = 45
 
@@ -553,6 +568,8 @@ def main() -> None:
         clock.tick(FPS)
 
     pygame.quit()
+    if conn is not None:
+        conn.close()
 
 
 if __name__ == "__main__":

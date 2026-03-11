@@ -59,6 +59,12 @@ pip install -e .
 # With PyTorch integration
 pip install -e ".[torch]"
 
+# Embodied environment — connector + monitor only (no pygame)
+pip install -e ".[embodied]"
+
+# Embodied environment + game window (adds pygame)
+pip install -e ".[embodied-game]"
+
 # Everything
 pip install -e ".[all]"
 ```
@@ -160,7 +166,8 @@ ROFramework-PyLib/
 ├── experiments/               # Research experiments
 │   ├── grokking/              #   Phase 8: knowledge trajectories, denoising, K-guided training
 │   ├── sae/                   #   Phase 9: GPT-2 + SAE knowledge assessment
-│   └── reservoir/             #   Direction C: reservoir computing (RC-1 completed)
+│   ├── reservoir/             #   Direction C: reservoir computing (RC-1 completed)
+│   └── embodied/              #   Pygame environment with ZeroMQ connector for live AI agents
 └── docs/                      # Documentation
     ├── ro_framework.md        #   Theoretical framework (1500+ lines)
     ├── organic_cognitive_architecture_oca.md  # OCA multi-reservoir design
@@ -203,6 +210,42 @@ Every `observe()` call records an `ObservationPair(external_state, internal_stat
 - `TorchObserver`: Batched inference, gradient-based saliency, MC Dropout uncertainty
 - `create_mlp()`: Quick MLP construction with dropout and batch norm options
 
+### Embodied Environment
+
+A 2D pygame environment where an AI entity navigates a world alongside a human-controlled player. The AI has:
+
+- **121 vision rays** (distance + object type per ray)
+- **16 directional body tactile receptors** (signal strength encodes object type without labels)
+- **2 prong sensors** for fine manipulation
+- **Internal meters**: life, satiation, valence (the intrinsic reward signal)
+
+The environment connects to any external process over ZeroMQ — the game publishes one observation packet per step (~60 fps) and consumes actions non-blocking. See [experiments/embodied/INTEGRATION.md](experiments/embodied/INTEGRATION.md) for the full wire protocol.
+
+```bash
+# Terminal 1 — start the game
+cd experiments/embodied
+python game.py --connect
+
+# Terminal 2 — connect your agent
+from connector import AgentConnector
+client = AgentConnector()
+client.connect()
+obs, reward, done, step = client.recv_obs()
+client.send_action((1.0, 0.0, 0.0))  # (fwd, turn, eat)
+
+# Terminal 2 (alternative) — sensory monitor
+python monitor.py
+```
+
+For headless training, instantiate `World` directly (no display required):
+
+```python
+from env import World
+world = World(seed=42)
+obs = world.get_ai_observation()   # float32 (263,)
+world.step(ai_action=(1.0, 0.0, 0.0))
+```
+
 ### Reservoir Computing Research
 
 Direction C now has a working RC baseline on modular addition. A fixed 729-unit reservoir with recurrent settle steps and a trainable nonlinear readout head reaches `99%` test accuracy on `(a + b) mod 97` with a 75/25 split, while a linear readout fails to generalize. This sharpens the current claim: fixed reservoirs can support symbolic generalization, but the readout may need nonlinear composition to extract the latent structure. See [docs/research/reservoir.md](docs/research/reservoir.md).
@@ -223,6 +266,11 @@ python examples/03_knowledge_assessment.py
 # Run experiments (research scripts, some require GPU / SAE models)
 python experiments/grokking/08_knowledge_tracker.py
 python experiments/sae/12b_sae_knowledge_types.py
+
+# Embodied environment
+cd experiments/embodied
+python game.py --connect      # game window with connector
+python monitor.py             # sensory monitor in a second terminal
 ```
 
 ## Known Limitations

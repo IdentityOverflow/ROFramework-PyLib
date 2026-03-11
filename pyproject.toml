@@ -43,6 +43,17 @@ sae = [
     "sae-lens>=4.0.0",
 ]
 
+embodied = [
+    "pyzmq>=25.0.0",
+    "rich>=13.0.0",
+]
+
+embodied-game = [
+    "pyzmq>=25.0.0",
+    "rich>=13.0.0",
+    "pygame>=2.4.0",
+]
+
 visualization = [
     "matplotlib>=3.7.0",
     "seaborn>=0.12.0",
@@ -74,7 +85,7 @@ notebooks = [
 ]
 
 all = [
-    "ro-framework[torch,sae,visualization,docs,dev,notebooks]"
+    "ro-framework[torch,sae,embodied-game,visualization,docs,dev,notebooks]"
 ]
 
 [project.urls]

@@ -125,7 +125,8 @@ FOOD_PLEASURE:       float = 0.6
 FOOD_SATIATION_GAIN: float = 0.35
 FOOD_LIFE_GAIN:      float = 0.15
 
-OTHER_ENTITY_PLEASURE: float = 0.005   # valence per step while touching
+OTHER_ENTITY_PLEASURE:  float = 0.005   # valence per step while touching
+OTHER_ENTITY_TOUCH_CAP: float = 0.12    # touch alone cannot push valence above this
 
 # ── Prongs / eat zone ─────────────────────────────────────────────────────────
 PRONG_ANGLE:     float = 0.60   # rad from heading (±34°)
@@ -646,8 +647,8 @@ class World:
             m.valence   = min(1.0, m.valence   + FOOD_PLEASURE)
             m.satiation = min(1.0, m.satiation + FOOD_SATIATION_GAIN)
             m.life      = min(1.0, m.life      + FOOD_LIFE_GAIN)
-        if entity.tactile.has_other():
-            m.valence = min(1.0, m.valence + OTHER_ENTITY_PLEASURE)
+        if entity.tactile.has_other() and m.valence < OTHER_ENTITY_TOUCH_CAP:
+            m.valence = min(OTHER_ENTITY_TOUCH_CAP, m.valence + OTHER_ENTITY_PLEASURE)
 
         self._step_valence_and_life(entity)
 
