@@ -10,11 +10,11 @@ Controls:
   Escape / Q      quit
 
 AI entity (blue) uses zero actions by default.
-Replace `ai_action` in the main loop with your ESN output:
+Replace `ai_action` in the main loop with your model output:
 
-    obs     = world.get_ai_observation()      # (50,) numpy array, all in [0,1]
-    esn_out = esn.step(obs)                   # (3,): [forward, turn, eat]
-    ai_action = tuple(float(v) for v in esn_out)
+    obs     = world.get_ai_observation()      # (263,) numpy array, all in [0,1]
+    out     = model.step(obs)                 # (3,): [forward, turn, eat]
+    ai_action = tuple(float(v) for v in out)
 
 Requires:  pygame  (pip install pygame)
 """
@@ -35,13 +35,16 @@ from env import (
     World, Entity,
     WORLD_W, WORLD_H,
     VISION_RANGE, VISION_HALF_ANGLE, N_RAYS,
+    FOOD_RADIUS, DANGER_RADIUS,
     HIT_NONE, HIT_WALL, HIT_FOOD, HIT_DANGER, HIT_OTHER,
     PRONG_ANGLE, PRONG_LENGTH, PRONG_BASE_W,
+    N_TOUCH_BODY, N_TOUCH_PRONGS,
+    TOUCH_WALL, TOUCH_FOOD, TOUCH_ENTITY, TOUCH_DANGER,
 )
 
 # ── Layout ────────────────────────────────────────────────────────────────────
 FPS        = 60
-HUD_HEIGHT = 130
+HUD_HEIGHT = 140
 SCREEN_W   = WORLD_W
 SCREEN_H   = WORLD_H + HUD_HEIGHT
 
@@ -66,15 +69,14 @@ C_DANGER_FILL  = ( 90,  22,  22)
 
 C_METER_BG     = ( 38,  40,  52)
 C_LIFE         = ( 55, 195,  75)
-C_SAT_NEG      = (215, 135,  40)   # hungry  (orange)
-C_SAT_POS      = ( 55, 195,  75)   # satiated (green)
-C_VAL_NEG      = (215,  55,  55)   # pain    (red)
-C_VAL_POS      = (155,  75, 215)   # pleasure (purple)
+C_SAT_NEG      = (215, 135,  40)
+C_SAT_POS      = ( 55, 195,  75)
+C_VAL_NEG      = (215,  55,  55)
+C_VAL_POS      = (155,  75, 215)
 
 C_DEATH_FLASH  = (180,  30,  30)
-C_PAUSE_OVERLAY= (  0,   0,   0)
 
-# Ray hit → render colour
+# Ray hit → colour
 RAY_COLORS = {
     HIT_NONE:   ( 45,  50,  70),
     HIT_WALL:   (130, 132, 155),
@@ -92,7 +94,7 @@ def draw_meter(
     value: float,
     x: int, y: int,
     color: tuple,
-    width: int = 120,
+    width: int = 110,
     height: int = 10,
 ) -> None:
     font = pygame.font.SysFont("monospace", 11)
@@ -107,14 +109,13 @@ def draw_meter(
 def draw_polar_meter(
     surf: pygame.Surface,
     label: str,
-    value: float,          # ∈ [-1, 1]
+    value: float,
     x: int, y: int,
     color_neg: tuple,
     color_pos: tuple,
-    width: int = 120,
+    width: int = 110,
     height: int = 10,
 ) -> None:
-    """Centred bar: left half fills for negative values, right half for positive."""
     font = pygame.font.SysFont("monospace", 11)
     pygame.draw.rect(surf, C_METER_BG, (x, y, width, height), border_radius=3)
     mid = width // 2
@@ -125,11 +126,134 @@ def draw_polar_meter(
     elif v < 0:
         fill = max(2, int(mid * (-v)))
         pygame.draw.rect(surf, color_neg, (x + mid - fill, y, fill, height), border_radius=3)
-    # Centre tick
     pygame.draw.line(surf, (110, 115, 140), (x + mid, y), (x + mid, y + height - 1))
     pygame.draw.rect(surf, (75, 78, 100), (x, y, width, height), 1, border_radius=3)
     txt = font.render(f"{label}  {value:+.2f}", True, C_TEXT)
     surf.blit(txt, (x + width + 6, y))
+
+
+def _tactile_color(sig: float) -> tuple:
+    """Map signal strength to a display colour."""
+    if sig < 0.05:
+        return (55, 58, 78)          # no signal
+    if sig >= 0.9:
+        return (215, 55, 55)         # danger: red
+    if sig >= 0.65:
+        return (180, 182, 200)       # wall: light grey
+    if sig >= 0.45:
+        return (70, 210, 110)        # entity: green
+    return (240, 210, 55)            # food: yellow
+
+
+def _draw_vision_strip(
+    surf: pygame.Surface,
+    entity: Entity,
+    world: World,
+    other: Entity,
+    sx: int, vy: int, strip_w: int, strip_h: int,
+) -> None:
+    angles = np.linspace(
+        entity.heading - VISION_HALF_ANGLE,
+        entity.heading + VISION_HALF_ANGLE,
+        N_RAYS,
+    )
+    for i, angle in enumerate(angles):
+        hit_type, dist = world._cast_ray(entity, angle, other)
+        prox  = (1.0 - dist / VISION_RANGE) if hit_type != HIT_NONE else 0.0
+        base  = RAY_COLORS[hit_type]
+        alpha = 0.25 if hit_type == HIT_NONE else 0.35 + 0.65 * prox
+        color = tuple(int(c * alpha) for c in base)
+        cx = sx + int(i * strip_w / max(N_RAYS - 1, 1))
+        cy = vy + strip_h // 2
+        r  = 1 if hit_type == HIT_NONE else max(1, int(1 + 2 * prox))
+        pygame.draw.circle(surf, color, (cx, cy), r)
+
+
+def draw_sensor_strips(
+    surf: pygame.Surface,
+    entity: Entity,
+    world: World,
+    other: Entity,
+    x: int, y: int,
+    strip_w: int,
+    font_s: pygame.font.Font,
+) -> None:
+    """
+    Two horizontal sensor strips (first-person view), each strip_w pixels wide.
+
+    Strip 1 (top)    — vision rays.  Centre dot = forward ray.  Colour by hit type.
+    Strip 2 (bottom) — tactile body receptors.  Centre = forward, sides wrap to rear.
+                        Two extra dots at far right = prong signals.
+
+    Both strips: left edge = leftmost sensor, right edge = rightmost sensor,
+    centre = directly ahead.  Dot brightness scales with signal strength.
+    """
+    DOT_STEP = max(1, strip_w // max(N_RAYS, N_TOUCH_BODY + 2))
+    STRIP_H  = 10
+
+    lbl_w = 52   # pixels reserved for label to the left
+
+    sx = x + lbl_w    # strip left edge
+    vy = y            # vision strip y
+    ty = y + 20       # tactile strip y
+
+    # ── labels ────────────────────────────────────────────────────────────────
+    surf.blit(font_s.render("vision", True, C_TEXT_DIM), (x, vy + 1))
+    surf.blit(font_s.render("touch",  True, C_TEXT_DIM), (x, ty + 1))
+
+    # Background track
+    pygame.draw.rect(surf, C_METER_BG, (sx, vy, strip_w, STRIP_H), border_radius=2)
+    pygame.draw.rect(surf, C_METER_BG, (sx, ty, strip_w + DOT_STEP * 4, STRIP_H), border_radius=2)
+
+    # ── vision strip ──────────────────────────────────────────────────────────
+    _draw_vision_strip(surf, entity, world, other, sx, vy, strip_w, STRIP_H)
+
+    # Centre marker (forward direction)
+    mid_x = sx + strip_w // 2
+    pygame.draw.line(surf, (80, 83, 108), (mid_x, vy), (mid_x, vy + STRIP_H - 1))
+
+    # ── tactile body strip ────────────────────────────────────────────────────
+    # Receptor 0 = forward.  Layout: centre=forward, left=CCW, right=CW.
+    # The two halves of the circle (left/right of forward) are unfolded flat.
+    # Receptor N//2 (opposite of forward = rear) appears at both edges, split.
+    body = entity.tactile.body
+    half = N_TOUCH_BODY // 2
+
+    for i in range(N_TOUCH_BODY):
+        sig = float(body[i])
+        color = _tactile_color(sig)
+        # Map receptor index to strip x:
+        #   i=0   → centre  (forward)
+        #   i=1…half  → right of centre  (CW / rightward)
+        #   i=N-1…half+1 → left of centre  (CCW / leftward)
+        if i == 0:
+            rx = sx + strip_w // 2
+        elif i <= half:
+            rx = sx + strip_w // 2 + int(i * (strip_w // 2) / half)
+        else:
+            steps_from_right_edge = N_TOUCH_BODY - i
+            rx = sx + strip_w // 2 - int(steps_from_right_edge * (strip_w // 2) / half)
+        cy_t = ty + STRIP_H // 2
+        r  = max(2, int(2 + 2 * sig))
+        pygame.draw.circle(surf, color, (rx, cy_t), r)
+
+    # ── prong dots — positioned at ±PRONG_ANGLE from centre, slightly above ────
+    # PRONG_ANGLE rad from forward maps to ~1.5 receptor spacings from centre.
+    prong_offset = int(PRONG_ANGLE * strip_w / (2 * np.pi))
+    prong_sides  = (("L", -1), ("R", +1))
+    for lbl, sign in prong_sides:
+        pi_idx = 0 if sign < 0 else 1
+        sig    = float(entity.tactile.prongs[pi_idx])
+        color  = _tactile_color(sig)
+        rx     = mid_x + sign * prong_offset
+        py_    = ty - 7     # sit just above the tactile strip
+        r      = max(4, int(4 + 3 * sig))
+        pygame.draw.circle(surf, color, (rx, py_), r)
+        pygame.draw.circle(surf, (100, 103, 130), (rx, py_), r, 1)
+        surf.blit(font_s.render(lbl, True, C_TEXT_DIM), (rx - 3, py_ + r + 2))
+
+    # Centre marker
+    pygame.draw.line(surf, (80, 83, 108), (mid_x, ty), (mid_x, ty + STRIP_H - 1))
 
 
 def draw_prongs(
@@ -137,10 +261,8 @@ def draw_prongs(
     entity: Entity,
     color: tuple,
 ) -> None:
-    """Draw two triangular prongs (fangs/hands) on the front of the entity."""
     cx, cy = entity.x, entity.y
-    r = entity.radius
-    h = entity.heading
+    r, h   = entity.radius, entity.heading
     for side in (-1.0, 1.0):
         angle = h + side * PRONG_ANGLE
         tip_x = cx + (r + PRONG_LENGTH) * np.cos(angle)
@@ -164,21 +286,21 @@ def draw_entity(
     pygame.draw.circle(surf, color, (cx, cy), r)
     pygame.draw.circle(surf, ring,  (cx, cy), r, 2)
     draw_prongs(surf, entity, ring)
-    # Heading dot
-    hx = int(cx + np.cos(entity.heading) * (r - 3))
-    hy = int(cy + np.sin(entity.heading) * (r - 3))
+    hx = int(cx + np.cos(entity.heading) * (r - 4))
+    hy = int(cy + np.sin(entity.heading) * (r - 4))
     pygame.draw.circle(surf, (255, 255, 255), (hx, hy), 3)
 
 
 def draw_food(surf: pygame.Surface, food) -> None:
     cx, cy = int(food.x), int(food.y)
-    pygame.draw.circle(surf, C_FOOD,      (cx, cy), 8)
-    pygame.draw.circle(surf, C_FOOD_RING, (cx, cy), 8, 1)
+    r = int(FOOD_RADIUS)
+    pygame.draw.circle(surf, C_FOOD,      (cx, cy), r)
+    pygame.draw.circle(surf, C_FOOD_RING, (cx, cy), r, 1)
 
 
 def draw_danger(surf: pygame.Surface, danger) -> None:
     cx, cy = int(danger.x), int(danger.y)
-    r = 10
+    r = int(DANGER_RADIUS)
     pts = [(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)]
     pygame.draw.polygon(surf, C_DANGER_FILL, pts)
     pygame.draw.polygon(surf, C_DANGER,      pts, 2)
@@ -191,7 +313,6 @@ def draw_vision(
     world: World,
     other: Entity,
 ) -> None:
-    """Draw vision rays. Brightness scales with proximity (close = brighter)."""
     ray_surf.fill((0, 0, 0, 0))
     angles = np.linspace(
         entity.heading - VISION_HALF_ANGLE,
@@ -203,60 +324,47 @@ def draw_vision(
         hit_type, dist = world._cast_ray(entity, angle, other)
         proximity = (1.0 - dist / VISION_RANGE) if hit_type != HIT_NONE else 0.0
         base = RAY_COLORS[hit_type]
-
-        # Ray brightness: dim for background, scale with proximity for hits
         if hit_type == HIT_NONE:
             alpha_line = 60
         else:
-            alpha_line = int(80 + 160 * proximity)   # 80…240
-
+            alpha_line = int(80 + 160 * proximity)
         ex = int(entity.x + np.cos(angle) * dist)
         ey = int(entity.y + np.sin(angle) * dist)
         pygame.draw.line(ray_surf, (*base, alpha_line), (ox, oy), (ex, ey), 1)
-
         if hit_type != HIT_NONE:
             dot_alpha = int(150 + 105 * proximity)
             dot_r = max(2, int(2 + 4 * proximity))
             pygame.draw.circle(ray_surf, (*base, dot_alpha), (ex, ey), dot_r)
-
     surf.blit(ray_surf, (0, 0))
 
 
 def draw_entity_hud(
     surf: pygame.Surface,
     entity: Entity,
+    world: World,
+    other: Entity,
     label: str,
     color: tuple,
     font_s: pygame.font.Font,
     font_m: pygame.font.Font,
     x: int,
     y: int,
+    panel_w: int,
 ) -> None:
-    """Draw meters + touch state for one entity at (x, y)."""
+    """Draw meters + sensor strips for one entity."""
     surf.blit(font_m.render(label, True, color), (x, y))
 
     m  = entity.meters
-    t  = entity.touch
     my = y + 18
 
-    draw_meter(      surf, "Life    ", m.life,      x, my,      C_LIFE,    width=110)
-    draw_polar_meter(surf, "Satiation", m.satiation, x, my + 16, C_SAT_NEG, C_SAT_POS, width=110)
-    draw_polar_meter(surf, "Valence  ", m.valence,   x, my + 32, C_VAL_NEG, C_VAL_POS, width=110)
+    draw_meter(      surf, "Life    ", m.life,      x, my,      C_LIFE)
+    draw_polar_meter(surf, "Satiation", m.satiation, x, my + 16, C_SAT_NEG, C_SAT_POS)
+    draw_polar_meter(surf, "Valence  ", m.valence,   x, my + 32, C_VAL_NEG, C_VAL_POS)
 
-    # Touch indicators
-    tx = x
-    ty = my + 52
-    touches = [
-        ("wall",   t.wall,   C_BORDER),
-        ("food",   t.food,   C_FOOD),
-        ("danger", t.danger, C_DANGER),
-        ("other",  t.other,  color),
-    ]
-    for name, active, tc in touches:
-        c   = tc if active else C_TEXT_DIM
-        dot = "●" if active else "○"
-        surf.blit(font_s.render(f"{dot} {name}", True, c), (tx, ty))
-        tx += 62
+    # Sensor strips (vision + tactile) — full panel width, below meters
+    strip_w = panel_w - 60   # leave margin for labels + prong dots
+    draw_sensor_strips(surf, entity, world, other,
+                       x, my + 56, strip_w, font_s)
 
 
 def draw_hud(
@@ -264,33 +372,32 @@ def draw_hud(
     world: World,
     font_s: pygame.font.Font,
     font_m: pygame.font.Font,
-    paused: bool,
 ) -> None:
     top = WORLD_H
     pygame.draw.rect(surf, C_HUD_BG, (0, top, SCREEN_W, HUD_HEIGHT))
     pygame.draw.line(surf, C_BORDER, (0, top), (SCREEN_W, top), 1)
 
-    # ── AI (left third) ───────────────────────────────────────────────────────
-    draw_entity_hud(surf, world.ai,     "AI ENTITY",     C_AI,
-                    font_s, font_m, x=14, y=top + 8)
+    panel_w = SCREEN_W // 3
 
-    # Vertical divider
+    draw_entity_hud(surf, world.ai, world, world.player,
+                    "AI ENTITY", C_AI,
+                    font_s, font_m, x=14, y=top + 8,
+                    panel_w=panel_w - 14)
+
     pygame.draw.line(surf, C_HUD_DIV,
-                     (SCREEN_W // 3, top + 6), (SCREEN_W // 3, top + HUD_HEIGHT - 6), 1)
+                     (panel_w, top + 6), (panel_w, top + HUD_HEIGHT - 6), 1)
 
-    # ── Player (middle third) ─────────────────────────────────────────────────
     p_color = C_PLAYER if world.player_active else C_PLAYER_OFF
-    draw_entity_hud(surf, world.player, "PLAYER",         p_color,
-                    font_s, font_m, x=SCREEN_W // 3 + 14, y=top + 8)
+    draw_entity_hud(surf, world.player, world, world.ai,
+                    "PLAYER", p_color,
+                    font_s, font_m, x=panel_w + 14, y=top + 8,
+                    panel_w=panel_w - 14)
 
-    # Vertical divider
     pygame.draw.line(surf, C_HUD_DIV,
-                     (SCREEN_W * 2 // 3, top + 6), (SCREEN_W * 2 // 3, top + HUD_HEIGHT - 6), 1)
+                     (panel_w * 2, top + 6), (panel_w * 2, top + HUD_HEIGHT - 6), 1)
 
-    # ── Controls + status (right third) ──────────────────────────────────────
-    sx = SCREEN_W * 2 // 3 + 14
+    sx = panel_w * 2 + 14
     sy = top + 8
-
     player_on = world.player_active
     surf.blit(font_m.render(
         "PLAYER: " + ("ON " if player_on else "OFF"),
@@ -300,25 +407,19 @@ def draw_hud(
     lines = [
         "[TAB]      toggle player",
         "[↑↓]       move   [←→] turn",
-        "[SPACE]    eat food  (face it first)",
+        "[SPACE]    eat food",
         "[E]        pat AI  (+pleasure)",
-        "[F]        feed AI  (push food to AI mouth)",
+        "[F]        feed AI  (push food to mouth)",
         "[P] pause  [R] reset  [ESC] quit",
         f"step {world.step_count:>7}   deaths {world.death_count}",
     ]
     for i, line in enumerate(lines):
-        c = (180, 80, 80) if paused and i == 3 else C_TEXT_DIM
-        surf.blit(font_s.render(line, True, c), (sx, sy + 18 + i * 15))
+        surf.blit(font_s.render(line, True, C_TEXT_DIM), (sx, sy + 18 + i * 15))
 
 
 # ── Input helpers ─────────────────────────────────────────────────────────────
 
 def _handle_events(world: World, paused: bool) -> tuple:
-    """
-    Process pygame event queue.
-    Returns (still_running, paused, reset_flash, pat, feed).
-    pat / feed are True on the key-press frame (one-shot).
-    """
     still_running = True
     reset_flash   = False
     pat           = False
@@ -345,7 +446,6 @@ def _handle_events(world: World, paused: bool) -> tuple:
 
 
 def _player_action(world: World, paused: bool) -> tuple:
-    """Read held keys and return (forward, turn, eat) for the player."""
     if not world.player_active or paused:
         return (0.0, 0.0, 0.0)
     keys = pygame.key.get_pressed()
@@ -355,13 +455,13 @@ def _player_action(world: World, paused: bool) -> tuple:
         fwd = -1.0
     else:
         fwd = 0.0
-    if keys[pygame.K_LEFT]:
-        turn = -1.0
-    elif keys[pygame.K_RIGHT]:
+    if keys[pygame.K_RIGHT]:
         turn = 1.0
+    elif keys[pygame.K_LEFT]:
+        turn = -1.0
     else:
         turn = 0.0
-    eat   =  1.0 if keys[pygame.K_SPACE] else 0.0
+    eat  = 1.0 if keys[pygame.K_SPACE] else 0.0
     return (fwd, turn, eat)
 
 
@@ -391,7 +491,7 @@ def _draw_world(
 def _draw_death_flash(screen: pygame.Surface, death_flash: int) -> int:
     if death_flash <= 0:
         return 0
-    alpha     = min(160, int(death_flash / 45 * 160))
+    alpha      = min(160, int(death_flash / 45 * 160))
     flash_surf = pygame.Surface((WORLD_W, WORLD_H), pygame.SRCALPHA)
     flash_surf.fill((*C_DEATH_FLASH, alpha))
     screen.blit(flash_surf, (0, 0))
@@ -418,8 +518,7 @@ def main() -> None:
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
     pygame.display.set_caption("RO Framework — Embodied Environment")
-    clock  = pygame.time.Clock()
-
+    clock    = pygame.time.Clock()
     font_s   = pygame.font.SysFont("monospace", 11)
     font_m   = pygame.font.SysFont("monospace", 13, bold=True)
     world    = World(seed=42)
@@ -436,23 +535,19 @@ def main() -> None:
 
         player_act = _player_action(world, paused)
 
-        # ── AI action (placeholder — replace with ESN output) ─────────────────
-        # obs        = world.get_ai_observation()    # (50,) array
-        # esn_out    = esn.step(obs)                 # (3,) array
-        # ai_action  = tuple(float(v) for v in esn_out)
+        # ── AI action (replace with model output) ─────────────────────────────
         ai_action = (0.0, 0.0, 0.0)
 
         prev_deaths = world.death_count
-        world.step(ai_action=ai_action, player_action=player_act,
-                   pat=pat, feed=feed)
+        world.step(ai_action=ai_action, player_action=player_act, pat=pat, feed=feed)
         if world.death_count > prev_deaths:
-            death_flash = 45   # ~0.75 s at 60 fps
+            death_flash = 45
 
         _draw_world(screen, ray_surf, world)
         death_flash = _draw_death_flash(screen, death_flash)
         if paused:
             _draw_pause_overlay(screen)
-        draw_hud(screen, world, font_s, font_m, paused)
+        draw_hud(screen, world, font_s, font_m)
 
         pygame.display.flip()
         clock.tick(FPS)
