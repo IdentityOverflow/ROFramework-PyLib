@@ -182,8 +182,9 @@ def compute_sum_averaged_reservoir(esn: EchoStateNetwork, p: int) -> np.ndarray:
 
     Returns: (p, reservoir_size) array — one row per sum class.
     """
-    grid_a = torch.arange(p, device=DEVICE).repeat_interleave(p)
-    grid_b = torch.arange(p, device=DEVICE).repeat(p)
+    device = esn.W_res.device
+    grid_a = torch.arange(p, device=device).repeat_interleave(p)
+    grid_b = torch.arange(p, device=device).repeat(p)
     x_a = F.one_hot(grid_a, p).float()
     x_b = F.one_hot(grid_b, p).float()
     x = torch.cat([x_a, x_b], dim=1)
@@ -316,8 +317,9 @@ def compute_sum_averaged_readout_features(esn: EchoStateNetwork, p: int) -> np.n
     nonlinear readout head can express Fourier structure before the last
     class-composition layer makes it linearly separable.
     """
-    grid_a = torch.arange(p, device=DEVICE).repeat_interleave(p)
-    grid_b = torch.arange(p, device=DEVICE).repeat(p)
+    device = esn.W_res.device
+    grid_a = torch.arange(p, device=device).repeat_interleave(p)
+    grid_b = torch.arange(p, device=device).repeat(p)
     x_a = F.one_hot(grid_a, p).float()
     x_b = F.one_hot(grid_b, p).float()
     x = torch.cat([x_a, x_b], dim=1)
