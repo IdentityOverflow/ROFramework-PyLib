@@ -14,7 +14,9 @@ ZeroMQ — no game code needs to change to swap the agent.
 | `env.py` | Core world simulation — `World`, entities, physics, meters |
 | `game.py` | Pygame display, HUD with live sensor strips, keyboard input |
 | `connector.py` | ZeroMQ `GameConnector` (game-side) and `AgentConnector` (brain-side) |
-| `brain.py` | Multi-reservoir ESN brain — the AI agent |
+| `brain.py` | Multi-reservoir ESN brain — numpy/CPU, default reservoir sizes |
+| `brain_gpu.py` | GPU-accelerated brain — PyTorch CUDA, 4× larger reservoirs (V1=1024, central=2048, motor=1024) |
+| `brain_viz.py` | Live pygame visualiser — reservoir heatmaps, graph view, rolling signal plots |
 | `monitor.py` | Rich terminal sensor monitor (read-only, second terminal) |
 | `INTEGRATION.md` | Full wire protocol reference (packet layout, port table) |
 
@@ -37,6 +39,23 @@ python monitor.py
 ```
 
 The brain connects automatically and starts learning. No pretraining needed.
+
+### With brain visualiser
+
+```bash
+# Terminal 1 — game window
+python game.py --connect
+
+# Terminal 2 — brain + visualiser (replaces brain.py)
+python brain_viz.py --save brain.npz
+```
+
+The visualiser window shows:
+
+- **Reservoir heatmaps** — each of the 5 reservoirs as a row of neurons (green=active, red=inhibited)
+- **Motor PCA 2-D** — trajectory of motor reservoir state projected to 2D; a loop = spinning attractor, scattered = exploring
+- **Rolling plots** — fwd, turn, reward, RPE over the last 400 steps
+- **Spinning alert** — red banner when sustained turn bias is detected
 
 ### Headless (no display)
 
@@ -153,7 +172,8 @@ W_out          *= (1 - WEIGHT_DECAY)             # L2 regularisation
 `action` is the post-tanh output `(fwd, turn, eat)` — bounded ∈ [−1, 1] —
 which keeps the trace and W_out numerically stable.
 The eligibility trace links past motor activations to future rewards with a
-0.9 decay, giving a ~10-step credit-assignment window at 60 fps.
+0.99 decay, giving a ~100-step (~1.7s) credit-assignment window at 60 fps —
+long enough to connect "food visible ahead" with "food eaten a moment later".
 
 ### Hyperparameters
 
@@ -162,19 +182,20 @@ All constants are at the top of `brain.py` and overridable via `--config` or the
 
 | Constant | Default | Meaning |
 |----------|---------|---------|
-| `SPECTRAL_RADIUS` | 0.99 | Reservoir memory depth (edge of chaos) |
-| `VAL_SPECTRAL_RADIUS` | 0.95 | Value reservoir — slightly faster reset |
+| `SPECTRAL_RADIUS` | 0.90 | Reservoir echo length (~10 steps). Lower than the classic 0.99 "edge of chaos" — at 0.99 the reservoir echoes circular motion for 100 steps, locking the agent into spinning attractors. Credit assignment window is set by `TRACE_DECAY` (independent of ρ). |
+| `VAL_SPECTRAL_RADIUS` | 0.85 | Value reservoir — faster reset, more reactive to current internal state |
 | `V1_SIZE` | 256 | Vision reservoir neurons |
 | `TAC_SIZE` | 128 | Tactile reservoir neurons |
 | `VAL_SIZE` | 64 | Value reservoir neurons |
 | `CENTRAL_SIZE` | 512 | Central integration reservoir |
 | `MOTOR_SIZE` | 256 | Motor reservoir |
 | `V1_ALPHA` … `MOTOR_ALPHA` | 1.0 | Leaky integrator α per reservoir — 1.0 = standard ESN; lower = slower integration |
+| `V1_BIAS_SCALE` … `MOTOR_BIAS_SCALE` | 0.0 | All reservoir biases zeroed — bias on any upstream reservoir propagates into motor output and locks the agent into persistent spinning; noise (ρ=0.99, noise=0.01) keeps reservoirs active without bias |
 | `V1_NOISE` … `MOTOR_NOISE` | 0.01 / 0.005 | Per-reservoir background noise scale |
 | `EXPLORE_NOISE` | 0.2 | Gaussian std added to fwd/turn before tanh |
 | `LEARN_LR` | 1e-4 | W_out learning rate |
 | `CRITIC_LR` | 1e-3 | Valence prediction EMA rate |
-| `TRACE_DECAY` | 0.9 | Eligibility trace decay (~10-step window) |
+| `TRACE_DECAY` | 0.99 | Eligibility trace decay (~100-step / ~1.7s window at 60fps) |
 | `WEIGHT_DECAY` | 1e-5 | L2 regularisation on W_out per step |
 
 Sensor counts (`N_RAYS`, `N_TOUCH_BODY`, `N_TOUCH_PRONGS`, `STATE_SIZE`) are also
@@ -216,13 +237,24 @@ and reproducible from `--seed`, so they don't need saving.
 ### Log output
 
 ```
-step    300  reward +0.031  valence_pred +0.012  |W_out| 0.031  eat:1  ep:0
-step    600  reward +0.123  valence_pred +0.089  |W_out| 0.034  eat:3  ep:1
+step     300  reward +0.031  valence_pred +0.012  |W_out| 0.031  fwd:+0.73  turn:+0.05  eat:1  ep:0
+step     600  reward +0.123  valence_pred +0.089  |W_out| 0.034  fwd:+0.68  turn:-0.12  eat:3  ep:1
 ```
 
-`|W_out|` is the Frobenius norm of the readout weights — it should grow slowly
-from ~0.03 as learning accumulates. `ep` counts episode resets (life → 0) in
-the interval.
+`|W_out|` is the Frobenius norm of the readout weights — initialises around
+0.03 for the default 3×256 size, then oscillates: spikes up on positive RPE
+events, pulled back down by weight decay between them. `ep` counts episode
+resets (life → 0) in the interval.
+
+`fwd` and `turn` are the mean action values over the interval (each ∈ [−1, 1]).
+They are the primary diagnostic for spinning attractors:
+
+| Pattern               | Meaning                               |
+| --------------------- | ------------------------------------- |
+| `turn:+0.9`           | stuck in a right circle               |
+| `turn:-0.9`           | stuck in a left circle                |
+| `fwd:+0.1`            | spinning in place, barely translating |
+| `fwd:+0.6  turn:+0.1` | healthy forward exploration           |
 
 ### Persistent CSV log
 
@@ -233,9 +265,9 @@ python brain.py --save brain.npz --log-path brain_log.csv
 Appends one row per log interval to a CSV file:
 
 ```
-step,mean_reward,valence_pred,w_norm,eat_count,episodes
-300,-0.0012,-0.0010,0.0314,1,0
-600,+0.0312,0.0089,0.0341,3,1
+step,mean_reward,valence_pred,w_norm,eat_count,episodes,mean_fwd,mean_turn
+300,-0.0012,-0.0010,0.0314,1,0,+0.6821,+0.0312
+600,+0.0312,0.0089,0.0341,3,1,+0.7103,-0.0891
 ```
 
 The file is created if it doesn't exist and appended to on restart, so the

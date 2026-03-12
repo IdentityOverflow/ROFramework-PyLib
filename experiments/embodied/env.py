@@ -43,6 +43,7 @@ METER DYNAMICS
 --------------
 Danger contact
   • Valence immediately drops to min(current, -0.5) on first contact step.
+  • Danger visible in forward cone: valence −= DANGER_VISION_PENALTY × proximity
   • After DANGER_LIFE_DELAY_STEPS consecutive contact steps (~3 s at 60 fps):
       life drains at LIFE_DRAIN_RATE each step, and
       valence = −(0.5 + 0.5 × (1 − life))   [pain rises as life falls]
@@ -53,6 +54,7 @@ Hunger
   • Once valence ≤ −0.5 from starvation, life also drains.
 
 Recovery
+  • Food visible in forward cone: valence += FOOD_VISION_REWARD × proximity
   • Eating food restores life, satiation, spikes valence.
   • Positive / negative valence both decay toward 0 when not under stress.
   • Leaving danger / eating food breaks the drain loop.
@@ -112,7 +114,7 @@ OBS_SIZE:    int = N_RAYS * 2 + N_TOUCH_RECEPTORS + 3
 ACTION_SIZE: int = 3
 
 # ── Meter dynamics ────────────────────────────────────────────────────────────
-SATIATION_DRAIN_RATE: float = 0.0001
+SATIATION_DRAIN_RATE: float = 0.0001   # hunger kicks in at ~20000 steps (~5.5 min at 60fps)
 VALENCE_DECAY_NEG:    float = 0.001
 VALENCE_DECAY_POS:    float = 0.001
 HUNGER_VALENCE_DRAIN: float = 0.002   # net change when starving: −0.001/step
@@ -140,6 +142,23 @@ EAT_ZONE_REACH:  float = ENTITY_RADIUS + FOOD_RADIUS + PRONG_LENGTH + 2.0
 PAT_PLEASURE:    float = 0.1
 PAT_TOUCH_DIST:  float = ENTITY_RADIUS * 2 + 24.0
 FEED_REACH_BONUS: float = 20.0
+
+# ── Spawn behaviour ───────────────────────────────────────────────────────────
+# When True the AI spawns adjacent to a random food item (facing it) so the
+# eat reflex gets a reward signal within the first few seconds of each episode.
+SPAWN_NEAR_FOOD: bool  = True
+SPAWN_NEAR_DIST: float = ENTITY_RADIUS * 4   # ~72 px  — close but not on top
+
+# ── Vision-based valence gradients ────────────────────────────────────────────
+# Symmetric proximity signals in the forward cone so the brain gets a learnable
+# gradient toward food and away from danger — not just the contact spike/penalty.
+#
+# Danger: −0.002 / step at max proximity (≈ −0.12 / s at 60 fps)
+# Food:   +0.001 / step at max proximity (≈ +0.06 / s at 60 fps)
+#   Kept half the danger penalty so food-seeking doesn't override avoidance when
+#   both are visible.  No effect while already eating (contact spike dominates).
+DANGER_VISION_PENALTY: float = 0.001
+FOOD_VISION_REWARD:    float = 0.001
 
 
 # ── Data classes ──────────────────────────────────────────────────────────────
@@ -259,12 +278,12 @@ class World:
         self._rng  = np.random.default_rng(seed)
         self.paused: bool = False
 
-        self.ai     = Entity(*_AI_START)
-        self.player = Entity(*_PLAYER_START)
-        self.player_active: bool = True
-
         self.foods   = self._spawn_foods(FOOD_COUNT)
         self.dangers = self._spawn_dangers(DANGER_COUNT)
+        ai_start = self._near_food_start() if SPAWN_NEAR_FOOD else _AI_START
+        self.ai     = Entity(*ai_start)
+        self.player = Entity(*_PLAYER_START)
+        self.player_active: bool = True
         self.step_count: int  = 0
         self.death_count: int = 0
 
@@ -317,10 +336,11 @@ class World:
 
     def reset(self, keep_counts: bool = False) -> None:
         counts = (self.step_count, self.death_count) if keep_counts else (0, 0)
-        self.ai     = Entity(*_AI_START)
-        self.player = Entity(*_PLAYER_START)
         self.foods   = self._spawn_foods(FOOD_COUNT)
         self.dangers = self._spawn_dangers(DANGER_COUNT)
+        ai_start = self._near_food_start() if SPAWN_NEAR_FOOD else _AI_START
+        self.ai     = Entity(*ai_start)
+        self.player = Entity(*_PLAYER_START)
         self.step_count  = counts[0] if keep_counts else 0
         self.death_count = counts[1] if keep_counts else 0
 
@@ -607,6 +627,47 @@ class World:
                 max_sig = max(max_sig, TOUCH_ENTITY)
         return max_sig
 
+    # ── Vision-based danger aversion ─────────────────────────────────────────
+
+    def _danger_vision_penalty(self, entity: Entity) -> float:
+        """
+        Proximity-scaled valence penalty for danger items visible in the
+        forward cone.  Returns a negative value ∈ [−DANGER_VISION_PENALTY, 0].
+        """
+        max_prox = 0.0
+        for danger in self.dangers:
+            dx = danger.x - entity.x
+            dy = danger.y - entity.y
+            dist = float(np.hypot(dx, dy))
+            if dist >= VISION_RANGE:
+                continue
+            angle = float(np.arctan2(dy, dx))
+            diff = abs((angle - entity.heading + np.pi) % (2.0 * np.pi) - np.pi)
+            if diff <= VISION_HALF_ANGLE:
+                max_prox = max(max_prox, 1.0 - dist / VISION_RANGE)
+        return -DANGER_VISION_PENALTY * max_prox
+
+    def _food_vision_reward(self, entity: Entity) -> float:
+        """
+        Proximity-scaled valence reward for active food visible in the forward
+        cone.  Symmetric counterpart to _danger_vision_penalty.
+        Returns a positive value ∈ [0, FOOD_VISION_REWARD].
+        """
+        max_prox = 0.0
+        for food in self.foods:
+            if not food.active:
+                continue
+            dx = food.x - entity.x
+            dy = food.y - entity.y
+            dist = float(np.hypot(dx, dy))
+            if dist >= VISION_RANGE:
+                continue
+            angle = float(np.arctan2(dy, dx))
+            diff = abs((angle - entity.heading + np.pi) % (2.0 * np.pi) - np.pi)
+            if diff <= VISION_HALF_ANGLE:
+                max_prox = max(max_prox, 1.0 - dist / VISION_RANGE)
+        return FOOD_VISION_REWARD * max_prox
+
     # ── Entity update ─────────────────────────────────────────────────────────
 
     def _step_valence_and_life(self, entity: Entity) -> None:
@@ -652,6 +713,17 @@ class World:
 
         self._step_valence_and_life(entity)
 
+        # Vision-based valence gradients — only when not in tactile contact
+        # (contact dynamics in _step_valence_and_life already dominate then).
+        if not entity.tactile.has_danger():
+            penalty = self._danger_vision_penalty(entity)
+            if penalty < 0.0:
+                m.valence = max(-1.0, m.valence + penalty)
+        if not ate_food:
+            reward = self._food_vision_reward(entity)
+            if reward > 0.0:
+                m.valence = min(1.0, m.valence + reward)
+
     # ── Food respawn ──────────────────────────────────────────────────────────
 
     def _tick_food_respawns(self) -> None:
@@ -666,6 +738,20 @@ class World:
                         FOOD_RADIUS + 40, WORLD_H - FOOD_RADIUS - 40))
 
     # ── Spawning ──────────────────────────────────────────────────────────────
+
+    def _near_food_start(self) -> Tuple[float, float, float]:
+        """Return (x, y, heading) for the AI spawn point adjacent to a random food."""
+        active = [f for f in self.foods if f.active]
+        if not active:
+            return _AI_START
+        food = active[int(self._rng.integers(len(active)))]
+        angle = float(self._rng.uniform(0.0, 2.0 * np.pi))
+        x = float(np.clip(food.x + SPAWN_NEAR_DIST * np.cos(angle),
+                          ENTITY_RADIUS + 5, WORLD_W - ENTITY_RADIUS - 5))
+        y = float(np.clip(food.y + SPAWN_NEAR_DIST * np.sin(angle),
+                          ENTITY_RADIUS + 5, WORLD_H - ENTITY_RADIUS - 5))
+        heading = float(np.arctan2(food.y - y, food.x - x))   # face the food
+        return x, y, heading
 
     def _spawn_foods(self, count: int) -> List[Food]:
         return [

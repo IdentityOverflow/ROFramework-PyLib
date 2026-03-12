@@ -56,8 +56,11 @@ CENTRAL_SIZE = 512
 MOTOR_SIZE   = 256
 
 # ── Reservoir dynamics (per-reservoir) ────────────────────────────────────────
-SPECTRAL_RADIUS     = 0.99
-VAL_SPECTRAL_RADIUS = 0.95   # value reservoir: faster, more reactive
+SPECTRAL_RADIUS     = 0.90   # lowered from 0.99 — shorter echo (~10 steps) breaks
+                             # self-generated circular attractors; credit assignment
+                             # window is TRACE_DECAY (separate), so food-seeking
+                             # credit still reaches ~100 steps back
+VAL_SPECTRAL_RADIUS = 0.85   # value reservoir: faster, more reactive
 
 V1_NOISE      = 0.01
 TAC_NOISE     = 0.01
@@ -70,6 +73,17 @@ TAC_INPUT_SCALING     = 1.0
 VAL_INPUT_SCALING     = 1.0
 CENTRAL_INPUT_SCALING = 1.0
 MOTOR_INPUT_SCALING   = 1.0
+
+# ── Reservoir bias scales ──────────────────────────────────────────────────────
+# All biases zeroed: bias on any upstream reservoir propagates through W_in
+# into central and motor, creating a fixed resting motor state that locks the
+# agent into persistent spinning.  At ρ=0.99 and noise=0.01 the reservoirs
+# stay active without bias — noise alone maintains exploration.
+V1_BIAS_SCALE      = 0.0
+TAC_BIAS_SCALE     = 0.0
+VAL_BIAS_SCALE     = 0.0
+CENTRAL_BIAS_SCALE = 0.0
+MOTOR_BIAS_SCALE   = 0.0
 
 EXPLORE_NOISE = 0.2    # Gaussian noise std on fwd/turn raw outputs
 EAT_THRESHOLD = 0.0    # eat when raw[2] > 0  (equiv. sigmoid > 0.5)
@@ -88,7 +102,7 @@ MOTOR_ALPHA   = 1.0    # motor  — all 1.0 = standard ESN; lower values to expe
 # ── Online learning ────────────────────────────────────────────────────────────
 LEARN_LR     = 1e-4    # W_out update learning rate
 CRITIC_LR    = 1e-3    # valence prediction EMA rate (slow baseline)
-TRACE_DECAY  = 0.9     # eligibility trace decay per step
+TRACE_DECAY  = 0.99    # eligibility trace decay per step — ~100 steps @ 60fps (~1.7s credit window)
 WEIGHT_DECAY = 1e-5    # L2 regularisation on W_out per step
 
 # ── Logging / saving ───────────────────────────────────────────────────────────
@@ -121,6 +135,7 @@ class Reservoir:
         input_scaling: float = 1.0,
         noise_scale: float = 0.01,
         alpha: float = 1.0,
+        bias_scale: float = 0.1,
         seed: int = 0,
     ) -> None:
         self._size        = size
@@ -131,7 +146,7 @@ class Reservoir:
         init_rng = np.random.default_rng(seed)   # deterministic weight init
 
         self._W_in  = init_rng.standard_normal((size, input_dim)) * input_scaling
-        self._bias  = init_rng.standard_normal(size) * 0.1
+        self._bias  = init_rng.standard_normal(size) * bias_scale
 
         W_res = init_rng.standard_normal((size, size))
         eigvals    = np.linalg.eigvals(W_res)
@@ -157,6 +172,11 @@ class Reservoir:
     def state(self) -> np.ndarray:
         """Current hidden state, shape (size,)."""
         return self._h
+
+    @property
+    def recurrent_weights(self) -> np.ndarray:
+        """Fixed recurrent weight matrix W_res, shape (size, size)."""
+        return self._W_res
 
 
 # ── Brain ──────────────────────────────────────────────────────────────────────
@@ -204,35 +224,35 @@ class EmbodiedBrain:
             spectral_radius=cfg["SPECTRAL_RADIUS"],
             input_scaling=cfg["V1_INPUT_SCALING"],
             noise_scale=cfg["V1_NOISE"],
-            alpha=cfg["V1_ALPHA"], seed=seed,
+            alpha=cfg["V1_ALPHA"], bias_scale=cfg["V1_BIAS_SCALE"], seed=seed,
         )
         self.tac_res = Reservoir(
             tac_sz, tac_rs,
             spectral_radius=cfg["SPECTRAL_RADIUS"],
             input_scaling=cfg["TAC_INPUT_SCALING"],
             noise_scale=cfg["TAC_NOISE"],
-            alpha=cfg["TAC_ALPHA"], seed=seed + 1,
+            alpha=cfg["TAC_ALPHA"], bias_scale=cfg["TAC_BIAS_SCALE"], seed=seed + 1,
         )
         self.val_res = Reservoir(
             st_sz, val_sz,
             spectral_radius=cfg["VAL_SPECTRAL_RADIUS"],
             input_scaling=cfg["VAL_INPUT_SCALING"],
             noise_scale=cfg["VAL_NOISE"],
-            alpha=cfg["VAL_ALPHA"], seed=seed + 2,
+            alpha=cfg["VAL_ALPHA"], bias_scale=cfg["VAL_BIAS_SCALE"], seed=seed + 2,
         )
         self.central_res = Reservoir(
             v1_sz + tac_rs + val_sz, cen_sz,   # input = 448
             spectral_radius=cfg["SPECTRAL_RADIUS"],
             input_scaling=cfg["CENTRAL_INPUT_SCALING"],
             noise_scale=cfg["CENTRAL_NOISE"],
-            alpha=cfg["CENTRAL_ALPHA"], seed=seed + 3,
+            alpha=cfg["CENTRAL_ALPHA"], bias_scale=cfg["CENTRAL_BIAS_SCALE"], seed=seed + 3,
         )
         self.motor_res = Reservoir(
             cen_sz, mot_sz,
             spectral_radius=cfg["SPECTRAL_RADIUS"],
             input_scaling=cfg["MOTOR_INPUT_SCALING"],
             noise_scale=cfg["MOTOR_NOISE"],
-            alpha=cfg["MOTOR_ALPHA"], seed=seed + 4,
+            alpha=cfg["MOTOR_ALPHA"], bias_scale=cfg["MOTOR_BIAS_SCALE"], seed=seed + 4,
         )
 
         # Readout (only trained component)
@@ -379,6 +399,9 @@ def _build_cfg(user: dict | None) -> dict:
         MOTOR_INPUT_SCALING=MOTOR_INPUT_SCALING,
         V1_ALPHA=V1_ALPHA, TAC_ALPHA=TAC_ALPHA, VAL_ALPHA=VAL_ALPHA,
         CENTRAL_ALPHA=CENTRAL_ALPHA, MOTOR_ALPHA=MOTOR_ALPHA,
+        V1_BIAS_SCALE=V1_BIAS_SCALE, TAC_BIAS_SCALE=TAC_BIAS_SCALE,
+        VAL_BIAS_SCALE=VAL_BIAS_SCALE, CENTRAL_BIAS_SCALE=CENTRAL_BIAS_SCALE,
+        MOTOR_BIAS_SCALE=MOTOR_BIAS_SCALE,
         EXPLORE_NOISE=EXPLORE_NOISE, EAT_THRESHOLD=EAT_THRESHOLD,
         LEARN_LR=LEARN_LR, CRITIC_LR=CRITIC_LR,
         TRACE_DECAY=TRACE_DECAY, WEIGHT_DECAY=WEIGHT_DECAY,
@@ -394,9 +417,10 @@ def _open_log(path: str) -> csv.DictWriter:
     """
     Open (or append to) a CSV log file. Returns a DictWriter ready to use.
     Writes the header only when creating a new file.
-    Columns: step, mean_reward, valence_pred, w_norm, eat_count, episodes
+    Columns: step, mean_reward, valence_pred, w_norm, eat_count, episodes, mean_fwd, mean_turn
     """
-    fields = ["step", "mean_reward", "valence_pred", "w_norm", "eat_count", "episodes"]
+    fields = ["step", "mean_reward", "valence_pred", "w_norm", "eat_count", "episodes",
+              "mean_fwd", "mean_turn"]
     is_new = not os.path.exists(path)
     fh = open(path, "a", newline="", buffering=1)   # line-buffered
     writer = csv.DictWriter(fh, fieldnames=fields)
@@ -408,12 +432,17 @@ def _open_log(path: str) -> csv.DictWriter:
 def _log(step: int, reward_sum: float, log_every: int,
          valence_pred: float, w_norm: float, eat_count: int,
          episodes: int = 0,
-         csv_writer: "csv.DictWriter | None" = None) -> None:
-    mean_r = reward_sum / max(log_every, 1)
+         csv_writer: "csv.DictWriter | None" = None,
+         fwd_sum: float = 0.0, turn_sum: float = 0.0) -> None:
+    mean_r    = reward_sum / max(log_every, 1)
+    mean_fwd  = fwd_sum   / max(log_every, 1)
+    mean_turn = turn_sum  / max(log_every, 1)
     print(
         f"step {step:>7}  reward {mean_r:+.3f}  "
         f"valence_pred {valence_pred:+.3f}  "
-        f"|W_out| {w_norm:.4f}  eat:{eat_count}  ep:{episodes}"
+        f"|W_out| {w_norm:.4f}  "
+        f"fwd:{mean_fwd:+.2f}  turn:{mean_turn:+.2f}  "
+        f"eat:{eat_count}  ep:{episodes}"
     )
     if csv_writer is not None:
         csv_writer.writerow({
@@ -422,6 +451,8 @@ def _log(step: int, reward_sum: float, log_every: int,
             "w_norm": f"{w_norm:.4f}",
             "eat_count": eat_count,
             "episodes": episodes,
+            "mean_fwd": f"{mean_fwd:.4f}",
+            "mean_turn": f"{mean_turn:.4f}",
         })
 
 
@@ -470,6 +501,8 @@ def run_connected(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
     eat_count  = 0
     episodes   = 0
     reward_sum = 0.0
+    fwd_sum    = 0.0
+    turn_sum   = 0.0
 
     try:
         obs, reward, done, _ = client.recv_obs()
@@ -484,16 +517,21 @@ def run_connected(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
 
             reward_sum += reward
             eat_count  += int(eat > 0.5)
+            fwd_sum    += fwd
+            turn_sum   += turn
             step       += 1
 
             if step % args.log_every == 0:
                 _log(step, reward_sum, args.log_every,
                      brain._valence_pred,
                      float(np.linalg.norm(brain.W_out)),
-                     eat_count, episodes, csv_writer)
+                     eat_count, episodes, csv_writer,
+                     fwd_sum, turn_sum)
                 reward_sum = 0.0
                 eat_count  = 0
                 episodes   = 0
+                fwd_sum    = 0.0
+                turn_sum   = 0.0
 
             if args.save and step % args.save_every == 0:
                 brain.save(args.save)
@@ -522,6 +560,8 @@ def run_headless(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
     eat_count  = 0
     episodes   = 0
     reward_sum = 0.0
+    fwd_sum    = 0.0
+    turn_sum   = 0.0
     prev_life  = 1.0
 
     life_idx = brain._state_sl.start   # obs[260] = life
@@ -543,16 +583,21 @@ def run_headless(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
 
             reward_sum += reward
             eat_count  += int(eat > 0.5)
+            fwd_sum    += fwd
+            turn_sum   += turn
             step       += 1
 
             if step % args.log_every == 0:
                 _log(step, reward_sum, args.log_every,
                      brain._valence_pred,
                      float(np.linalg.norm(brain.W_out)),
-                     eat_count, episodes, csv_writer)
+                     eat_count, episodes, csv_writer,
+                     fwd_sum, turn_sum)
                 reward_sum = 0.0
                 eat_count  = 0
                 episodes   = 0
+                fwd_sum    = 0.0
+                turn_sum   = 0.0
 
             if args.save and step % args.save_every == 0:
                 brain.save(args.save)
@@ -605,7 +650,7 @@ examples:
                         help=f"Save every N steps (default {SAVE_EVERY})")
     parser.add_argument("--log-path",   metavar="PATH",
                         help="Append one CSV row per log interval to PATH "
-                             "(step, mean_reward, valence_pred, w_norm, eat_count, episodes)")
+                             "(step, mean_reward, valence_pred, w_norm, eat_count, episodes, mean_fwd, mean_turn)")
     args = parser.parse_args()
 
     print("Building multi-reservoir ESN brain…")
