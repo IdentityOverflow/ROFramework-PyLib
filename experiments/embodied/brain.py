@@ -23,6 +23,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import csv
 import os
 import signal
 import sys
@@ -73,6 +74,17 @@ MOTOR_INPUT_SCALING   = 1.0
 EXPLORE_NOISE = 0.2    # Gaussian noise std on fwd/turn raw outputs
 EAT_THRESHOLD = 0.0    # eat when raw[2] > 0  (equiv. sigmoid > 0.5)
 
+# ── Leaky-integrator α — controls temporal frequency per reservoir ─────────────
+# h_t = (1-α)·h_{t-1} + α·tanh(W_in·x + W_res·h + bias + noise)
+# α=1.0 → standard ESN (fast, current-input dominated)
+# α→0  → slow integrator (long time-constant, smoothed)
+# At 60 fps: α=1.0 → ~17ms, α=0.5 → ~33ms, α=0.3 → ~56ms, α=0.1 → ~167ms
+V1_ALPHA      = 1.0    # vision
+TAC_ALPHA     = 1.0    # tactile
+VAL_ALPHA     = 1.0    # value / internal state
+CENTRAL_ALPHA = 1.0    # central integration
+MOTOR_ALPHA   = 1.0    # motor  — all 1.0 = standard ESN; lower values to experiment with slower integration
+
 # ── Online learning ────────────────────────────────────────────────────────────
 LEARN_LR     = 1e-4    # W_out update learning rate
 CRITIC_LR    = 1e-3    # valence prediction EMA rate (slow baseline)
@@ -80,8 +92,10 @@ TRACE_DECAY  = 0.9     # eligibility trace decay per step
 WEIGHT_DECAY = 1e-5    # L2 regularisation on W_out per step
 
 # ── Logging / saving ───────────────────────────────────────────────────────────
-LOG_EVERY  = 300       # print stats every N steps
-SAVE_EVERY = 3600      # save weights every N steps (~1 min at 60fps)
+LOG_EVERY  = 300       # print stats every N steps (~5 s at 60 fps)
+SAVE_EVERY = 3600      # save weights every N steps (~1 min at 60 fps)
+# CSV log: 1 row per LOG_EVERY interval, ~60 bytes/row.
+# At LOG_EVERY=300 and 60 fps, 8 h overnight ≈ 5760 rows ≈ 350 KB.
 
 
 # ── Reservoir ─────────────────────────────────────────────────────────────────
@@ -93,8 +107,10 @@ class Reservoir:
     All weights (W_in, W_res, bias) are randomly initialised at construction
     and never updated.  Hidden state h is advanced via step().
 
-    Update equation:
-        h_t = tanh(W_in @ x_t  +  W_res @ h_{t-1}  +  bias  +  noise_t)
+    Update equation (leaky integrator):
+        h_t = (1 - α)·h_{t-1}  +  α·tanh(W_in @ x_t  +  W_res @ h_{t-1}  +  bias  +  noise_t)
+
+    α=1.0 recovers the standard ESN equation.
     """
 
     def __init__(
@@ -104,10 +120,12 @@ class Reservoir:
         spectral_radius: float = SPECTRAL_RADIUS,
         input_scaling: float = 1.0,
         noise_scale: float = 0.01,
+        alpha: float = 1.0,
         seed: int = 0,
     ) -> None:
         self._size        = size
         self._noise_scale = noise_scale
+        self._alpha       = alpha
         self._rng         = np.random.default_rng(seed)
 
         init_rng = np.random.default_rng(seed)   # deterministic weight init
@@ -126,8 +144,9 @@ class Reservoir:
 
     def step(self, x: np.ndarray) -> np.ndarray:
         """Advance one time step; return new hidden state (shape: size,)."""
-        noise   = self._noise_scale * self._rng.standard_normal(self._size)
-        self._h = np.tanh(self._W_in @ x + self._W_res @ self._h + self._bias + noise)
+        noise = self._noise_scale * self._rng.standard_normal(self._size)
+        pre   = np.tanh(self._W_in @ x + self._W_res @ self._h + self._bias + noise)
+        self._h = (1.0 - self._alpha) * self._h + self._alpha * pre
         return self._h
 
     def reset(self) -> None:
@@ -184,31 +203,36 @@ class EmbodiedBrain:
             vis_sz, v1_sz,
             spectral_radius=cfg["SPECTRAL_RADIUS"],
             input_scaling=cfg["V1_INPUT_SCALING"],
-            noise_scale=cfg["V1_NOISE"], seed=seed,
+            noise_scale=cfg["V1_NOISE"],
+            alpha=cfg["V1_ALPHA"], seed=seed,
         )
         self.tac_res = Reservoir(
             tac_sz, tac_rs,
             spectral_radius=cfg["SPECTRAL_RADIUS"],
             input_scaling=cfg["TAC_INPUT_SCALING"],
-            noise_scale=cfg["TAC_NOISE"], seed=seed + 1,
+            noise_scale=cfg["TAC_NOISE"],
+            alpha=cfg["TAC_ALPHA"], seed=seed + 1,
         )
         self.val_res = Reservoir(
             st_sz, val_sz,
             spectral_radius=cfg["VAL_SPECTRAL_RADIUS"],
             input_scaling=cfg["VAL_INPUT_SCALING"],
-            noise_scale=cfg["VAL_NOISE"], seed=seed + 2,
+            noise_scale=cfg["VAL_NOISE"],
+            alpha=cfg["VAL_ALPHA"], seed=seed + 2,
         )
         self.central_res = Reservoir(
             v1_sz + tac_rs + val_sz, cen_sz,   # input = 448
             spectral_radius=cfg["SPECTRAL_RADIUS"],
             input_scaling=cfg["CENTRAL_INPUT_SCALING"],
-            noise_scale=cfg["CENTRAL_NOISE"], seed=seed + 3,
+            noise_scale=cfg["CENTRAL_NOISE"],
+            alpha=cfg["CENTRAL_ALPHA"], seed=seed + 3,
         )
         self.motor_res = Reservoir(
             cen_sz, mot_sz,
             spectral_radius=cfg["SPECTRAL_RADIUS"],
             input_scaling=cfg["MOTOR_INPUT_SCALING"],
-            noise_scale=cfg["MOTOR_NOISE"], seed=seed + 4,
+            noise_scale=cfg["MOTOR_NOISE"],
+            alpha=cfg["MOTOR_ALPHA"], seed=seed + 4,
         )
 
         # Readout (only trained component)
@@ -217,10 +241,10 @@ class EmbodiedBrain:
         self.b_out = np.zeros(3)
 
         # Online learning state
-        self._trace           = np.zeros((3, mot_sz))
-        self._valence_pred    = 0.0
-        self._last_raw_action = np.zeros(3)
-        self._last_h_motor    = np.zeros(mot_sz)
+        self._trace        = np.zeros((3, mot_sz))
+        self._valence_pred = 0.0
+        self._last_action  = np.zeros(3)   # post-tanh/threshold — bounded, used in trace
+        self._last_h_motor = np.zeros(mot_sz)
 
         # Runtime config
         self._explore_noise    = cfg["EXPLORE_NOISE"]
@@ -258,14 +282,14 @@ class EmbodiedBrain:
         h_motor   = self.motor_res.step(h_central)
 
         raw = self.W_out @ h_motor + self.b_out
-        self._last_raw_action[:] = raw
-        self._last_h_motor[:]    = h_motor
+        self._last_h_motor[:] = h_motor
 
         noise = self._rng.standard_normal(2) * self._explore_noise
         fwd   = float(np.tanh(raw[0] + noise[0]))
         turn  = float(np.tanh(raw[1] + noise[1]))
         eat   = 1.0 if raw[2] > self._eat_threshold else 0.0
 
+        self._last_action[:] = (fwd, turn, eat)   # bounded: fwd/turn ∈ [-1,1], eat ∈ {0,1}
         return fwd, turn, eat
 
     # ── Online learning ────────────────────────────────────────────────────────
@@ -280,7 +304,7 @@ class EmbodiedBrain:
         Equations:
             rpe           = reward − valence_pred
             valence_pred += CRITIC_LR × rpe
-            trace         = TRACE_DECAY × trace + outer(raw_action, h_motor)
+            trace         = TRACE_DECAY × trace + outer(action, h_motor)
             W_out        += LEARN_LR × rpe × trace
             W_out        *= (1 − WEIGHT_DECAY)
 
@@ -295,7 +319,7 @@ class EmbodiedBrain:
         self._valence_pred += self._critic_lr * rpe
         self._trace = (
             self._trace_decay * self._trace
-            + np.outer(self._last_raw_action, self._last_h_motor)
+            + np.outer(self._last_action, self._last_h_motor)
         )
         self.W_out += self._learn_lr * rpe * self._trace
         self.W_out *= 1.0 - self._weight_decay
@@ -313,8 +337,8 @@ class EmbodiedBrain:
                     self.central_res, self.motor_res):
             res.reset()
         self._trace[:] = 0.0
-        self._last_raw_action[:] = 0.0
-        self._last_h_motor[:]    = 0.0
+        self._last_action[:]  = 0.0
+        self._last_h_motor[:] = 0.0
 
     # ── Persistence ────────────────────────────────────────────────────────────
 
@@ -353,6 +377,8 @@ def _build_cfg(user: dict | None) -> dict:
         V1_INPUT_SCALING=V1_INPUT_SCALING, TAC_INPUT_SCALING=TAC_INPUT_SCALING,
         VAL_INPUT_SCALING=VAL_INPUT_SCALING, CENTRAL_INPUT_SCALING=CENTRAL_INPUT_SCALING,
         MOTOR_INPUT_SCALING=MOTOR_INPUT_SCALING,
+        V1_ALPHA=V1_ALPHA, TAC_ALPHA=TAC_ALPHA, VAL_ALPHA=VAL_ALPHA,
+        CENTRAL_ALPHA=CENTRAL_ALPHA, MOTOR_ALPHA=MOTOR_ALPHA,
         EXPLORE_NOISE=EXPLORE_NOISE, EAT_THRESHOLD=EAT_THRESHOLD,
         LEARN_LR=LEARN_LR, CRITIC_LR=CRITIC_LR,
         TRACE_DECAY=TRACE_DECAY, WEIGHT_DECAY=WEIGHT_DECAY,
@@ -364,14 +390,39 @@ def _build_cfg(user: dict | None) -> dict:
 
 # ── Run loops ─────────────────────────────────────────────────────────────────
 
+def _open_log(path: str) -> csv.DictWriter:
+    """
+    Open (or append to) a CSV log file. Returns a DictWriter ready to use.
+    Writes the header only when creating a new file.
+    Columns: step, mean_reward, valence_pred, w_norm, eat_count, episodes
+    """
+    fields = ["step", "mean_reward", "valence_pred", "w_norm", "eat_count", "episodes"]
+    is_new = not os.path.exists(path)
+    fh = open(path, "a", newline="", buffering=1)   # line-buffered
+    writer = csv.DictWriter(fh, fieldnames=fields)
+    if is_new:
+        writer.writeheader()
+    return writer
+
+
 def _log(step: int, reward_sum: float, log_every: int,
-         valence_pred: float, w_norm: float, eat_count: int) -> None:
+         valence_pred: float, w_norm: float, eat_count: int,
+         episodes: int = 0,
+         csv_writer: "csv.DictWriter | None" = None) -> None:
     mean_r = reward_sum / max(log_every, 1)
     print(
         f"step {step:>7}  reward {mean_r:+.3f}  "
         f"valence_pred {valence_pred:+.3f}  "
-        f"|W_out| {w_norm:.4f}  eat:{eat_count}"
+        f"|W_out| {w_norm:.4f}  eat:{eat_count}  ep:{episodes}"
     )
+    if csv_writer is not None:
+        csv_writer.writerow({
+            "step": step, "mean_reward": f"{mean_r:.4f}",
+            "valence_pred": f"{valence_pred:.4f}",
+            "w_norm": f"{w_norm:.4f}",
+            "eat_count": eat_count,
+            "episodes": episodes,
+        })
 
 
 def _install_save_handler(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
@@ -387,6 +438,18 @@ def _install_save_handler(brain: EmbodiedBrain, args: argparse.Namespace) -> Non
     print(f"  Save on demand:  kill -USR1 {os.getpid()}")
 
 
+def _recv_with_retry(client, zmq_again_cls):
+    """Block until an obs packet arrives; retry transparently on zmq.Again."""
+    while True:
+        try:
+            return client.recv_obs()
+        except Exception as exc:
+            if zmq_again_cls and isinstance(exc, zmq_again_cls):
+                print("[brain] recv timeout — retrying")
+            else:
+                raise
+
+
 def run_connected(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
     """Agent loop via ZeroMQ AgentConnector (requires game.py --connect)."""
     _ensure_path()
@@ -399,12 +462,14 @@ def run_connected(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
     except ImportError:
         _ZmqAgain = None
 
-    client = AgentConnector()
+    client     = AgentConnector()
     client.connect()
+    csv_writer = _open_log(args.log_path) if args.log_path else None
 
-    step        = 0
-    eat_count   = 0
-    reward_sum  = 0.0
+    step       = 0
+    eat_count  = 0
+    episodes   = 0
+    reward_sum = 0.0
 
     try:
         obs, reward, done, _ = client.recv_obs()
@@ -414,6 +479,7 @@ def run_connected(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
             brain.learn(reward)
             if done:
                 brain.reset_state()
+                episodes += 1
             client.send_action((fwd, turn, eat))
 
             reward_sum += reward
@@ -423,23 +489,17 @@ def run_connected(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
             if step % args.log_every == 0:
                 _log(step, reward_sum, args.log_every,
                      brain._valence_pred,
-                     float(np.linalg.norm(brain.W_out)), eat_count)
+                     float(np.linalg.norm(brain.W_out)),
+                     eat_count, episodes, csv_writer)
                 reward_sum = 0.0
                 eat_count  = 0
+                episodes   = 0
 
             if args.save and step % args.save_every == 0:
                 brain.save(args.save)
                 print(f"  [saved → {args.save}]")
 
-            while True:
-                try:
-                    obs, reward, done, _ = client.recv_obs()
-                    break
-                except Exception as exc:
-                    if _ZmqAgain and isinstance(exc, _ZmqAgain):
-                        print("[brain] recv timeout — retrying")
-                        continue
-                    raise
+            obs, reward, done, _ = _recv_with_retry(client, _ZmqAgain)
 
     except KeyboardInterrupt:
         print("\nInterrupted.")
@@ -456,9 +516,11 @@ def run_headless(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
     from env import World  # noqa: PLC0415
 
     world      = World(seed=args.seed)
+    csv_writer = _open_log(args.log_path) if args.log_path else None
     n_steps    = args.headless
     step       = 0
     eat_count  = 0
+    episodes   = 0
     reward_sum = 0.0
     prev_life  = 1.0
 
@@ -476,6 +538,7 @@ def run_headless(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
             brain.learn(reward)
             if done:
                 brain.reset_state()
+                episodes += 1
             world.step(ai_action=(fwd, turn, eat))
 
             reward_sum += reward
@@ -485,9 +548,11 @@ def run_headless(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
             if step % args.log_every == 0:
                 _log(step, reward_sum, args.log_every,
                      brain._valence_pred,
-                     float(np.linalg.norm(brain.W_out)), eat_count)
+                     float(np.linalg.norm(brain.W_out)),
+                     eat_count, episodes, csv_writer)
                 reward_sum = 0.0
                 eat_count  = 0
+                episodes   = 0
 
             if args.save and step % args.save_every == 0:
                 brain.save(args.save)
@@ -538,6 +603,9 @@ examples:
                         help=f"Print stats every N steps (default {LOG_EVERY})")
     parser.add_argument("--save-every", type=int, default=SAVE_EVERY, metavar="N",
                         help=f"Save every N steps (default {SAVE_EVERY})")
+    parser.add_argument("--log-path",   metavar="PATH",
+                        help="Append one CSV row per log interval to PATH "
+                             "(step, mean_reward, valence_pred, w_norm, eat_count, episodes)")
     args = parser.parse_args()
 
     print("Building multi-reservoir ESN brain…")

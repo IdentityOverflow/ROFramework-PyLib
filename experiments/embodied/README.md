@@ -41,7 +41,7 @@ The brain connects automatically and starts learning. No pretraining needed.
 ### Headless (no display)
 
 ```bash
-python brain.py --headless 18000 --save brain.npz --log-every 300
+python brain.py --headless 18000 --save brain.npz --log-path brain_log.csv
 ```
 
 Imports `World` directly from `env.py`, bypasses pygame entirely. Useful for
@@ -123,15 +123,19 @@ The architecture maps onto the Organic Cognitive Architecture (OCA) in
 
 ### Reservoir dynamics
 
-Each reservoir step:
+Each reservoir step uses a leaky integrator:
 
 ```
-h_new = tanh(W_in @ x  +  W_res @ h  +  bias  +  noise)
+pre   = tanh(W_in @ x  +  W_res @ h  +  bias  +  noise)
+h_new = (1 − α) · h  +  α · pre
 ```
 
-`W_res` is scaled to the configured spectral radius; `bias` is a small fixed
-random vector that gives each seed a distinct "personality" (consistent turn
-preference, activity level, etc.).
+`α = 1.0` (the default) recovers the standard ESN equation. Lower values slow
+the reservoir's response, increasing its effective time constant — useful for
+experimenting with different integration speeds per layer (e.g. slow central,
+fast sensory). `W_res` is scaled to the configured spectral radius; `bias` is a
+small fixed random vector that gives each seed a distinct "personality"
+(consistent turn preference, activity level, etc.).
 
 ### Online learning — RPE-gated eligibility traces
 
@@ -140,12 +144,14 @@ No pretraining. W_out updates on every step using a simple actor-critic rule:
 ```
 rpe             = reward - valence_pred          # reward prediction error
 valence_pred   += CRITIC_LR * rpe               # moving baseline (persists across episodes)
-trace           = TRACE_DECAY * trace  +  outer(raw_action, h_motor)
+trace           = TRACE_DECAY * trace  +  outer(action, h_motor)
 W_out          += LEARN_LR * rpe * trace
 W_out          *= (1 - WEIGHT_DECAY)             # L2 regularisation
 ```
 
 `reward` is the game's raw valence ∈ [−1, 1] (see `INTEGRATION.md §Reward`).
+`action` is the post-tanh output `(fwd, turn, eat)` — bounded ∈ [−1, 1] —
+which keeps the trace and W_out numerically stable.
 The eligibility trace links past motor activations to future rewards with a
 0.9 decay, giving a ~10-step credit-assignment window at 60 fps.
 
@@ -156,18 +162,20 @@ All constants are at the top of `brain.py` and overridable via `--config` or the
 
 | Constant | Default | Meaning |
 |----------|---------|---------|
-| `SPECTRAL_RADIUS` | 0.99 | Reservoir memory depth |
-| `VAL_SPECTRAL_RADIUS` | 0.95 | Value reservoir (faster, more reactive) |
+| `SPECTRAL_RADIUS` | 0.99 | Reservoir memory depth (edge of chaos) |
+| `VAL_SPECTRAL_RADIUS` | 0.95 | Value reservoir — slightly faster reset |
 | `V1_SIZE` | 256 | Vision reservoir neurons |
 | `TAC_SIZE` | 128 | Tactile reservoir neurons |
 | `VAL_SIZE` | 64 | Value reservoir neurons |
 | `CENTRAL_SIZE` | 512 | Central integration reservoir |
 | `MOTOR_SIZE` | 256 | Motor reservoir |
-| `EXPLORE_NOISE` | 0.2 | Gaussian std on fwd/turn outputs |
+| `V1_ALPHA` … `MOTOR_ALPHA` | 1.0 | Leaky integrator α per reservoir — 1.0 = standard ESN; lower = slower integration |
+| `V1_NOISE` … `MOTOR_NOISE` | 0.01 / 0.005 | Per-reservoir background noise scale |
+| `EXPLORE_NOISE` | 0.2 | Gaussian std added to fwd/turn before tanh |
 | `LEARN_LR` | 1e-4 | W_out learning rate |
 | `CRITIC_LR` | 1e-3 | Valence prediction EMA rate |
-| `TRACE_DECAY` | 0.9 | Eligibility trace decay |
-| `WEIGHT_DECAY` | 1e-5 | L2 regularisation per step |
+| `TRACE_DECAY` | 0.9 | Eligibility trace decay (~10-step window) |
+| `WEIGHT_DECAY` | 1e-5 | L2 regularisation on W_out per step |
 
 Sensor counts (`N_RAYS`, `N_TOUCH_BODY`, `N_TOUCH_PRONGS`, `STATE_SIZE`) are also
 constants — all obs slice indices are derived from them automatically.
@@ -186,6 +194,7 @@ python brain.py [options]
   --seed N         Reservoir init seed (default 42)
   --log-every N    Print status every N steps (default 300)
   --save-every N   Save to disk every N steps (default 3600 ≈ 1 min at 60 fps)
+  --log-path PATH  Append one CSV row per log interval to PATH
 ```
 
 ### Save / load
@@ -207,13 +216,31 @@ and reproducible from `--seed`, so they don't need saving.
 ### Log output
 
 ```
-step    300  reward +0.031  valence_pred +0.012  |W_out| 0.031  eat:1
-step    600  reward +0.123  valence_pred +0.089  |W_out| 0.034  eat:3
+step    300  reward +0.031  valence_pred +0.012  |W_out| 0.031  eat:1  ep:0
+step    600  reward +0.123  valence_pred +0.089  |W_out| 0.034  eat:3  ep:1
 ```
 
-`|W_out|` is the RMS weight magnitude — it should grow slowly from ~0.03 as
-learning accumulates. A flat `|W_out|` over thousands of steps with non-zero
-rewards indicates a learning problem.
+`|W_out|` is the Frobenius norm of the readout weights — it should grow slowly
+from ~0.03 as learning accumulates. `ep` counts episode resets (life → 0) in
+the interval.
+
+### Persistent CSV log
+
+```bash
+python brain.py --save brain.npz --log-path brain_log.csv
+```
+
+Appends one row per log interval to a CSV file:
+
+```
+step,mean_reward,valence_pred,w_norm,eat_count,episodes
+300,-0.0012,-0.0010,0.0314,1,0
+600,+0.0312,0.0089,0.0341,3,1
+```
+
+The file is created if it doesn't exist and appended to on restart, so the
+full training history accumulates across runs. At the default `--log-every 300`
+and 60 fps, an overnight 8-hour run produces ≈ 5 700 rows ≈ 350 KB.
 
 ---
 
@@ -235,8 +262,20 @@ more naturally than others.
 load the weights and connect to the live game:
 
 ```bash
-python brain.py --headless 360000 --save brain.npz  # ~100 minutes at 60fps
-python brain.py --load brain.npz --save brain.npz   # resume live
+python brain.py --headless 360000 --save brain.npz --log-path brain_log.csv
+python brain.py --load brain.npz --save brain.npz --log-path brain_log.csv
+```
+
+The CSV log appends across restarts, giving you a continuous training history.
+
+**Analysing progress** — load the CSV in Python or any spreadsheet tool:
+
+```python
+import pandas as pd
+df = pd.read_csv("brain_log.csv")
+df["mean_reward"].plot()          # valence trend
+df["w_norm"].plot()               # weight growth
+df["episodes"].cumsum().plot()    # total deaths over time
 ```
 
 ---
