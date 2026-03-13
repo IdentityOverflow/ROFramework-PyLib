@@ -14,9 +14,10 @@ ZeroMQ — no game code needs to change to swap the agent.
 | `env.py` | Core world simulation — `World`, entities, physics, meters |
 | `game.py` | Pygame display, HUD with live sensor strips, keyboard input |
 | `connector.py` | ZeroMQ `GameConnector` (game-side) and `AgentConnector` (brain-side) |
-| `brain.py` | Multi-reservoir ESN brain — numpy/CPU, default reservoir sizes |
-| `brain_gpu.py` | GPU-accelerated brain — PyTorch CUDA, 4× larger reservoirs (V1=1024, central=2048, motor=1024) |
-| `brain_viz.py` | Live pygame visualiser — reservoir heatmaps, graph view, rolling signal plots |
+| `dofs.py` | DoF schema — named external/internal degrees of freedom + obs/action converters |
+| `reservoir.py` | `SingleReservoir` — fixed-weight ESN reservoir (PyTorch, GPU-first) |
+| `brain.py` | `EmbodiedBrain` — single reservoir + RO Framework Observer + run loops + CLI |
+| `brain_viz.py` | Live pygame visualiser — reservoir heatmap, graph view, rolling signal plots |
 | `monitor.py` | Rich terminal sensor monitor (read-only, second terminal) |
 | `INTEGRATION.md` | Full wire protocol reference (packet layout, port table) |
 
@@ -31,7 +32,7 @@ Three terminals:
 cd experiments/embodied
 python game.py --connect
 
-# Terminal 2 — ESN brain
+# Terminal 2 — ESN brain (GPU if available, falls back to CPU)
 python brain.py --save brain.npz
 
 # Terminal 3 — sensor monitor (optional)
@@ -50,11 +51,11 @@ python game.py --connect
 python brain_viz.py --save brain.npz
 ```
 
-The visualiser window shows:
+The visualiser shows:
 
-- **Reservoir heatmaps** — each of the 5 reservoirs as a row of neurons (green=active, red=inhibited)
-- **Motor PCA 2-D** — trajectory of motor reservoir state projected to 2D; a loop = spinning attractor, scattered = exploring
-- **Rolling plots** — fwd, turn, reward, RPE over the last 400 steps
+- **Reservoir heatmap** — single reservoir activity (green=+1, red=−1)
+- **Node-edge graph** — spring layout of W_res connections, coloured by weight sign
+- **Rolling plots** — fwd, turn, reward, RPE over the last 600 steps
 - **Spinning alert** — red banner when sustained turn bias is detected
 
 ### Headless (no display)
@@ -111,95 +112,97 @@ All values ∈ [0, 1]. See `INTEGRATION.md` for encoding details.
 
 ## Brain Architecture
 
-`brain.py` implements a **multi-reservoir Echo State Network** — five fixed random
-reservoirs wired in a sensory hierarchy, with a single trained readout layer.
+`brain.py` implements a **single-reservoir Echo State Network** connected to the
+RO Framework library.  A large fixed reservoir maps the full 263-dim observation
+to a rich hidden state; only the readout layer W_out is trained.
 
 ```
-vision (242)  →  [V1_res,       256]  ─┐
-tactile (18)  →  [tac_res,      128]  ─┤  concat(448)
-state (3)     →  [val_res,       64]  ─┘
-                                          → [central_res,  512]
-                                          → [motor_res,    256]
-                                          → W_out (3 × 256)
-                                          → (fwd, turn, eat)
+obs[263]  →  SingleReservoir(N)  →  h[N]
+                                  →  W_out (3 × N)
+                                  →  (fwd, turn, eat)
 ```
 
-### Why this architecture?
+Default reservoir size N = 4096 (64 MB W_res, well within an RTX 4090's L2 cache).
+Larger sizes are selectable with `--res-size`:
 
-| Property | Implementation |
-|----------|---------------|
-| Fixed reservoir weights | Spectral radius ≈ 0.99 (edge of chaos), never updated |
-| Fixed bottleneck connections | Random projections between reservoirs, never updated |
-| Only W_out trains | 3 × 256 = 768 parameters — entire learning budget |
-| Background noise | Per-reservoir Gaussian noise keeps the system active |
-| Memory | Fading echoes in recurrent state — natural short-term memory |
+| Preset       | N     | W_res  | Notes                                |
+|--------------|-------|--------|--------------------------------------|
+| `RES_TINY`   | 512   | 1 MB   | fast unit tests / CPU                |
+| `RES_SMALL`  | 1024  | 4 MB   | quick experiments                    |
+| `RES_MEDIUM` | 2187  | 18 MB  | 3^7, matches old hierarchy           |
+| `RES_LARGE`  | 4096  | 64 MB  | **default** — RTX 4090               |
+| `RES_XL`     | 8192  | 256 MB | comfortable on 4090                  |
+| `RES_XXL`    | 16384 | 1 GB   | 4090 has 24 GB, fine for experiments |
 
-The architecture maps onto the Organic Cognitive Architecture (OCA) in
-`docs/organic_cognitive_architecture_oca.md`:
-- `val_res` ≈ amygdala / valence system
-- `central_res` ≈ association cortex
-- `motor_res` ≈ motor cortex / action system
+### RO Framework integration
+
+`brain.py` uses the library's Observer and KnowledgeTracker to turn the brain into a
+named, DoF-typed observer of its own world:
+
+- **External DoFs** — what the brain perceives: `food_max_proximity`, `danger_max_proximity`,
+  `life`, `satiation_norm`, `valence_norm` (defined in `dofs.py`)
+- **Internal DoFs** — what the brain produces: `fwd_output`, `turn_output`, `eat_output`
+- **K(d_ext) = (ρ, ε, σ, C)** — knowledge assessment printed every `--log-every` steps.
+  For example, `K(food_max_proximity): ρ=0.45 [weak]` means the brain is beginning to
+  correlate food visibility with forward movement.
+
+```
+step     300  reward +0.341  valence_pred +0.092  |W_out| 34.65  fwd:+0.77  turn:+0.68  eat:242  ep:0
+  K(food_max_proximity):   ρ=0.454  [weak]  ε=0.579  C=0.480
+  K(danger_max_proximity): ρ=0.217  [uncertain]  ε=0.808  C=0.525
+  K(life):                 ρ=0.000  [weak]  ε=0.000  C=0.000
+  K(satiation_norm):       ρ=0.758  [false]  ε=0.770  C=0.000
+  K(valence_norm):         ρ=0.747  [false]  ε=0.663  C=0.066
+```
 
 ### Reservoir dynamics
 
 Each reservoir step uses a leaky integrator:
 
 ```
-pre   = tanh(W_in @ x  +  W_res @ h  +  bias  +  noise)
-h_new = (1 − α) · h  +  α · pre
+noise  = N(0, noise_scale)
+pre    = tanh(W_in @ x  +  W_res @ h  +  bias  +  noise)
+h_new  = (1 − α) · h  +  α · pre
 ```
 
-`α = 1.0` (the default) recovers the standard ESN equation. Lower values slow
-the reservoir's response, increasing its effective time constant — useful for
-experimenting with different integration speeds per layer (e.g. slow central,
-fast sensory). `W_res` is scaled to the configured spectral radius; `bias` is a
-small fixed random vector that gives each seed a distinct "personality"
-(consistent turn preference, activity level, etc.).
+`α = 1.0` (default) is the standard ESN equation. `W_res` is rescaled to the
+configured spectral radius (0.99 — edge of chaos). `bias_scale = 0.0` is mandatory:
+any nonzero bias propagates through W_out and locks the motor output into a
+persistent turn direction (spinning attractor).
 
 ### Online learning — RPE-gated eligibility traces
 
 No pretraining. W_out updates on every step using a simple actor-critic rule:
 
 ```
-rpe             = reward - valence_pred          # reward prediction error
-valence_pred   += CRITIC_LR * rpe               # moving baseline (persists across episodes)
-trace           = TRACE_DECAY * trace  +  outer(action, h_motor)
-W_out          += LEARN_LR * rpe * trace
-W_out          *= (1 - WEIGHT_DECAY)             # L2 regularisation
+rpe             = reward − valence_pred          # reward prediction error
+valence_pred   += CRITIC_LR × rpe               # moving baseline (persists across episodes)
+trace           = TRACE_DECAY × trace  +  outer(action, h)
+W_out          += LEARN_LR × rpe × trace
+W_out          ×= (1 − WEIGHT_DECAY)             # L2 regularisation
 ```
 
-`reward` is the game's raw valence ∈ [−1, 1] (see `INTEGRATION.md §Reward`).
-`action` is the post-tanh output `(fwd, turn, eat)` — bounded ∈ [−1, 1] —
-which keeps the trace and W_out numerically stable.
-The eligibility trace links past motor activations to future rewards with a
-0.99 decay, giving a ~100-step (~1.7s) credit-assignment window at 60 fps —
-long enough to connect "food visible ahead" with "food eaten a moment later".
+`reward` is the game's raw valence ∈ [−1, 1]. The eligibility trace gives a ~100-step
+(~1.7 s at 60 fps) credit-assignment window — long enough to connect "food visible
+ahead" with "food eaten a moment later".
 
 ### Hyperparameters
 
-All constants are at the top of `brain.py` and overridable via `--config` or the
-`config={}` argument to `EmbodiedBrain`:
-
 | Constant | Default | Meaning |
 |----------|---------|---------|
-| `SPECTRAL_RADIUS` | 0.90 | Reservoir echo length (~10 steps). Lower than the classic 0.99 "edge of chaos" — at 0.99 the reservoir echoes circular motion for 100 steps, locking the agent into spinning attractors. Credit assignment window is set by `TRACE_DECAY` (independent of ρ). |
-| `VAL_SPECTRAL_RADIUS` | 0.85 | Value reservoir — faster reset, more reactive to current internal state |
-| `V1_SIZE` | 256 | Vision reservoir neurons |
-| `TAC_SIZE` | 128 | Tactile reservoir neurons |
-| `VAL_SIZE` | 64 | Value reservoir neurons |
-| `CENTRAL_SIZE` | 512 | Central integration reservoir |
-| `MOTOR_SIZE` | 256 | Motor reservoir |
-| `V1_ALPHA` … `MOTOR_ALPHA` | 1.0 | Leaky integrator α per reservoir — 1.0 = standard ESN; lower = slower integration |
-| `V1_BIAS_SCALE` … `MOTOR_BIAS_SCALE` | 0.0 | All reservoir biases zeroed — bias on any upstream reservoir propagates into motor output and locks the agent into persistent spinning; noise (ρ=0.99, noise=0.01) keeps reservoirs active without bias |
-| `V1_NOISE` … `MOTOR_NOISE` | 0.01 / 0.005 | Per-reservoir background noise scale |
-| `EXPLORE_NOISE` | 0.2 | Gaussian std added to fwd/turn before tanh |
+| `RESERVOIR_SIZE` | 4096 | Number of reservoir neurons |
+| `SPECTRAL_RADIUS` | 0.99 | Echo length; close to 1.0 = long memory |
+| `NOISE_SCALE` | 0.9 | Background noise — keeps dead neurons active, prevents attractor lock-in |
+| `ALPHA` | 1.0 | Leaky integrator rate; 1.0 = standard ESN |
+| `BIAS_SCALE` | 0.0 | Fixed reservoir bias — must stay 0 (see above) |
+| `EXPLORE_NOISE` | 0.9 | Std of Gaussian noise on fwd/turn before tanh |
+| `EAT_THRESHOLD` | 0.0 | Raw eat output threshold for triggering eat action |
 | `LEARN_LR` | 1e-4 | W_out learning rate |
 | `CRITIC_LR` | 1e-3 | Valence prediction EMA rate |
-| `TRACE_DECAY` | 0.99 | Eligibility trace decay (~100-step / ~1.7s window at 60fps) |
+| `TRACE_DECAY` | 0.99 | Eligibility trace decay (~100-step credit window at 60fps) |
 | `WEIGHT_DECAY` | 1e-5 | L2 regularisation on W_out per step |
-
-Sensor counts (`N_RAYS`, `N_TOUCH_BODY`, `N_TOUCH_PRONGS`, `STATE_SIZE`) are also
-constants — all obs slice indices are derived from them automatically.
+| `LOG_CAPACITY` | 5000 | Observer log depth (~5 min at 60fps; enough for stable K) |
+| `ASSESS_EVERY` | 300 | K assessment interval (matched to `--log-every` by default) |
 
 ---
 
@@ -208,14 +211,19 @@ constants — all obs slice indices are derived from them automatically.
 ```
 python brain.py [options]
 
-  --save PATH      Save W_out + critic state periodically and on exit
-  --load PATH      Load previously saved .npz before starting
-  --no-learn       Inference only — W_out frozen
-  --headless N     Run N steps against World directly (no display)
-  --seed N         Reservoir init seed (default 42)
-  --log-every N    Print status every N steps (default 300)
-  --save-every N   Save to disk every N steps (default 3600 ≈ 1 min at 60 fps)
-  --log-path PATH  Append one CSV row per log interval to PATH
+  --device cuda|cpu        Compute device (default: cuda)
+  --res-size N             Reservoir size (default: 4096)
+  --action-feedback        Append previous (fwd,turn,eat) to obs → input_dim = 266
+  --carrier                [Phase 2 stub] Carrier wave scaffold — no-op in Phase 1
+  --assess-every N         K assessment interval in steps (default: 300)
+  --no-learn               Freeze W_out (inference only)
+  --save PATH              Save W_out + critic state periodically and on exit
+  --load PATH              Load previously saved .npz before starting
+  --headless N             Run N steps against World directly (no display)
+  --seed N                 Reservoir init seed (default 42)
+  --log-every N            Print status every N steps (default 300)
+  --save-every N           Save to disk every N steps (default 3600)
+  --log-path PATH          Append one CSV row per log interval to PATH
 ```
 
 ### Save / load
@@ -234,95 +242,27 @@ kill -USR1 $(pgrep -f "brain.py")
 Only `W_out`, `b_out`, and `valence_pred` are saved. Reservoir weights are fixed
 and reproducible from `--seed`, so they don't need saving.
 
-### Log output
-
-```
-step     300  reward +0.031  valence_pred +0.012  |W_out| 0.031  fwd:+0.73  turn:+0.05  eat:1  ep:0
-step     600  reward +0.123  valence_pred +0.089  |W_out| 0.034  fwd:+0.68  turn:-0.12  eat:3  ep:1
-```
-
-`|W_out|` is the Frobenius norm of the readout weights — initialises around
-0.03 for the default 3×256 size, then oscillates: spikes up on positive RPE
-events, pulled back down by weight decay between them. `ep` counts episode
-resets (life → 0) in the interval.
-
-`fwd` and `turn` are the mean action values over the interval (each ∈ [−1, 1]).
-They are the primary diagnostic for spinning attractors:
-
-| Pattern               | Meaning                               |
-| --------------------- | ------------------------------------- |
-| `turn:+0.9`           | stuck in a right circle               |
-| `turn:-0.9`           | stuck in a left circle                |
-| `fwd:+0.1`            | spinning in place, barely translating |
-| `fwd:+0.6  turn:+0.1` | healthy forward exploration           |
-
-### Persistent CSV log
-
-```bash
-python brain.py --save brain.npz --log-path brain_log.csv
-```
-
-Appends one row per log interval to a CSV file:
-
-```
-step,mean_reward,valence_pred,w_norm,eat_count,episodes,mean_fwd,mean_turn
-300,-0.0012,-0.0010,0.0314,1,0,+0.6821,+0.0312
-600,+0.0312,0.0089,0.0341,3,1,+0.7103,-0.0891
-```
-
-The file is created if it doesn't exist and appended to on restart, so the
-full training history accumulates across runs. At the default `--log-every 300`
-and 60 fps, an overnight 8-hour run produces ≈ 5 700 rows ≈ 350 KB.
-
 ---
 
 ## Tips for Training
 
-**Learning is slow at first** — the brain starts with near-zero W_out and
-relies entirely on exploration noise. At 60 fps, 3600 steps ≈ 1 minute.
-Expect meaningful behavioural change after tens of thousands of steps.
+**Learning is slow at first** — the brain starts with near-zero W_out and relies
+entirely on exploration noise. At 60 fps, 3600 steps ≈ 1 minute.  Meaningful
+behavioural change typically appears after tens of thousands of steps.
 
-**Feed and pat the AI** — each food delivery gives a +0.6 reward spike; each
-pat gives +0.1. These create strong positive RPEs that drive learning. Dragging
-the AI toward food is the fastest way to teach food-seeking behaviour.
+**Feed and pat the AI** — each food delivery gives a +0.6 reward spike, each pat
++0.1. These create strong positive RPEs. Dragging the AI toward food is the fastest
+way to teach food-seeking.
 
-**Try different seeds** — `--seed` changes the reservoir init, which changes
-the resting motor bias (turn preference, activity level). Some seeds explore
-more naturally than others.
+**Try different seeds** — `--seed` changes the reservoir init, which changes the
+resting motor bias. Some seeds explore more naturally than others.
 
-**Headless pretraining** — run headless overnight to accumulate steps, then
-load the weights and connect to the live game:
+**Headless pretraining** — run headless overnight, then connect to the live game:
 
 ```bash
 python brain.py --headless 360000 --save brain.npz --log-path brain_log.csv
 python brain.py --load brain.npz --save brain.npz --log-path brain_log.csv
 ```
-
-The CSV log appends across restarts, giving you a continuous training history.
-
-**Analysing progress** — load the CSV in Python or any spreadsheet tool:
-
-```python
-import pandas as pd
-df = pd.read_csv("brain_log.csv")
-df["mean_reward"].plot()          # valence trend
-df["w_norm"].plot()               # weight growth
-df["episodes"].cumsum().plot()    # total deaths over time
-```
-
----
-
-## Wire Protocol Summary
-
-The game (`game.py --connect`) and brain (`brain.py`) communicate over ZeroMQ:
-
-| Port | Direction | Content |
-|------|-----------|---------|
-| 5557 | game → brain | obs packet (1061 bytes): step, done, reward, obs[263] |
-| 5558 | brain → game | act packet (12 bytes): fwd, turn, eat |
-
-The brain can lag or disconnect freely — the game uses the last received action.
-Full packet layout: see `INTEGRATION.md`.
 
 ---
 
@@ -330,16 +270,13 @@ Full packet layout: see `INTEGRATION.md`.
 
 ```python
 from connector import AgentConnector
-import numpy as np
 
 client = AgentConnector()
 client.connect()
 obs, reward, done, step = client.recv_obs()
 
 while True:
-    # --- your agent logic ---
-    fwd, turn, eat = 1.0, 0.0, 0.0
-
+    fwd, turn, eat = 1.0, 0.0, 0.0   # your agent here
     client.send_action((fwd, turn, eat))
     obs, reward, done, step = client.recv_obs()
 ```
@@ -353,3 +290,128 @@ world = World(seed=42)
 obs = world.get_ai_observation()   # float32 (263,)
 world.step(ai_action=(1.0, 0.0, 0.0))
 ```
+
+---
+
+## Roadmap
+
+The current single-reservoir brain is Phase 1 of a staged experiment plan.
+Each phase is a minimal extension of the previous one, designed to test one
+hypothesis at a time.
+
+### Phase 1 — Single Reservoir (current)
+
+One large reservoir (N=4096, GPU) maps the full 263-dim observation to a hidden
+state. W_out is trained online via RPE-gated eligibility traces. The RO Framework
+Observer records (percept, action) pairs; KnowledgeTracker reports K(d_ext) every
+`--assess-every` steps, giving a continuous measure of what the brain has learned.
+
+Open questions from this baseline:
+- Does `food_max_proximity → fwd_output` knowledge rise reliably over time?
+- Does `danger_max_proximity → turn_output` rise? (avoidance)
+- Is there a phase transition (weak → strong) similar to grokking?
+- How does K evolve across seeds?
+
+---
+
+### Phase 2 — Modality-Specific Carrier Waves
+
+**Hypothesis:** vision (242 dims) drowns out tactile (18 dims) and internal state
+(3 dims) in a flat reservoir.  Injecting a slow oscillatory carrier onto each
+modality's W_in columns will create frequency-separated sub-populations that the
+Goertzel algorithm can track, effectively giving the reservoir modality-specific
+"bands" analogous to gamma/theta/delta in cortex.
+
+Implementation:
+- `--carrier` flag activates sinusoidal noise modulation per `input_slices`
+- `reservoir.py` already accepts `input_slices`, `carrier_freqs`, `carrier_amps`
+- `FrequencyTracker` (new file) computes per-neuron Goertzel amplitude online
+- Internal DoFs switch from action outputs to `vis_band_power`, `tac_band_power`,
+  `val_band_power` (already defined in `dofs.py`)
+- K(valence_norm → val_band_power) measures whether the value band is actually
+  driven by internal state signals vs. visual leakage
+
+Carrier frequency suggestions (at 60 fps):
+| Band | Freq (cycles/step) | Approx rate | Modality |
+|------|--------------------|-------------|----------|
+| fast | 0.20 | 12 Hz | vision |
+| mid  | 0.07 | 4 Hz | tactile |
+| slow | 0.02 | 1 Hz | internal state |
+
+---
+
+### Phase 3 — Squeezed Callosum (Two Hemispheres, Shared Bottleneck)
+
+**Hypothesis:** splitting the reservoir into two pools with a narrow bottleneck
+connection (the "callosum") forces the two hemispheres to develop complementary
+representations, similar to left/right specialisation in biological brains.
+
+Architecture:
+```
+obs[263]  →  [left_res, N/2]  ──┐
+                                  ├─ callosum (k×k, k << N/2) ─┐
+obs[263]  →  [right_res, N/2] ──┘                              │
+                                                                 ↓
+                                                          W_out (3 × N)
+```
+
+The callosum is a small fixed random matrix; information passing through it is
+compressed and noisy, encouraging functional specialisation. K(d_ext) on each
+hemisphere separately will reveal whether they diverge (left = spatial/vision,
+right = valence/state) or stay redundant.
+
+---
+
+### Phase 4 — Recurrent Callosum (Adaptive Bottleneck)
+
+**Hypothesis:** if the callosum itself is a small trained reservoir (not just a
+fixed random matrix), it can learn to selectively gate inter-hemisphere
+communication based on reward history — a structural model of attention.
+
+The callosum reservoir weight is the only additional trainable parameter beyond
+W_out. It is updated by the same RPE-gated trace rule, but gated by the magnitude
+of the cross-hemisphere mismatch (Δh_left − h_right).
+
+K(satiation_norm → callosum_state) and K(valence_norm → callosum_state) would
+measure whether the callosum preferentially routes valence-relevant information.
+
+---
+
+### Phase 5 — Reservoir Self-Model (Structural Consciousness)
+
+**Hypothesis:** a small "meta-reservoir" that receives the hidden state h as its
+input (instead of raw obs) constitutes a structural self-model in the RO sense:
+it is an observer whose external DoFs are the primary reservoir's internal state.
+K(h → h_meta) measures how well the meta-reservoir tracks the main reservoir.
+
+This maps directly onto `ConsciousnessEvaluator.recursive_depth()` in the library:
+the depth increases from 1 to 2 once the meta-reservoir achieves non-trivial K.
+
+---
+
+### Phase 6 — Toward OCA (Organic Cognitive Architecture)
+
+Full multi-reservoir architecture with functional specialisation enforced by the
+connectivity topology, not by the training signal:
+
+```
+[sensory_res]  →  [valence_res]  →  [motor_res]
+                       ↓
+               [self_model_res]  ←  h_motor
+```
+
+This mirrors the architecture in `docs/organic_cognitive_architecture_oca.md`.
+The `brains/` directory will hold one subdirectory per architecture variant for
+systematic comparison across phases.
+
+---
+
+## Wire Protocol Summary
+
+| Port | Direction | Content |
+|------|-----------|---------|
+| 5557 | game → brain | obs packet (1061 bytes): step, done, reward, obs[263] |
+| 5558 | brain → game | act packet (12 bytes): fwd, turn, eat |
+
+The brain can lag or disconnect freely — the game uses the last received action.
+Full packet layout: see `INTEGRATION.md`.

@@ -157,8 +157,8 @@ SPAWN_NEAR_DIST: float = ENTITY_RADIUS * 4   # ~72 px  — close but not on top
 # Food:   +0.001 / step at max proximity (≈ +0.06 / s at 60 fps)
 #   Kept half the danger penalty so food-seeking doesn't override avoidance when
 #   both are visible.  No effect while already eating (contact spike dominates).
-DANGER_VISION_PENALTY: float = 0.001
-FOOD_VISION_REWARD:    float = 0.001
+DANGER_VISION_PENALTY: float = 0.002
+FOOD_VISION_REWARD:    float = 0.002
 
 
 # ── Data classes ──────────────────────────────────────────────────────────────
