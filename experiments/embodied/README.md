@@ -1,9 +1,9 @@
 # Embodied AI Experiment
 
-A 2D pygame environment for embodied AI research. A human-controlled player and an
-AI entity share the same world. The AI has rich sensory input and intrinsic reward
-(valence) as its only learning signal. An external brain process connects over
-ZeroMQ — no game code needs to change to swap the agent.
+A 2D pygame environment for embodied AI research. A human-controlled player and one or
+more AI entities share the same world. Each AI has rich sensory input and intrinsic
+reward (valence) as its only learning signal. External brain processes connect over
+ZeroMQ — no game code needs to change to swap or add agents.
 
 ---
 
@@ -12,20 +12,20 @@ ZeroMQ — no game code needs to change to swap the agent.
 | File | Purpose |
 |------|---------|
 | `env.py` | Core world simulation — `World`, entities, physics, meters |
-| `game.py` | Pygame display, HUD with live sensor strips, keyboard input |
-| `connector.py` | ZeroMQ `GameConnector` (game-side) and `AgentConnector` (brain-side) |
+| `game.py` | Pygame display, HUD with player sensors, per-agent status, keyboard input |
+| `connector.py` | ZeroMQ connectors: `MultiGameConnector` (game), `AgentConnector` (brain), `MonitorConnector` (read-only) |
 | `dofs.py` | DoF schema — named external/internal degrees of freedom + obs/action converters |
 | `reservoir.py` | `SingleReservoir` — fixed-weight ESN reservoir (PyTorch, GPU-first) |
 | `brain.py` | `EmbodiedBrain` — single reservoir + RO Framework Observer + run loops + CLI |
 | `brain_viz.py` | Live pygame visualiser — reservoir heatmap, graph view, rolling signal plots |
-| `monitor.py` | Rich terminal sensor monitor (read-only, second terminal) |
+| `monitor.py` | Rich terminal sensor monitor (read-only, no body spawned) |
 | `INTEGRATION.md` | Full wire protocol reference (packet layout, port table) |
 
 ---
 
 ## Quick Start
 
-Three terminals:
+### Single brain
 
 ```bash
 # Terminal 1 — game window
@@ -35,11 +35,31 @@ python game.py --connect
 # Terminal 2 — ESN brain (GPU if available, falls back to CPU)
 python brain.py --save brain.npz
 
-# Terminal 3 — sensor monitor (optional)
+# Terminal 3 — sensor monitor (optional, read-only)
 python monitor.py
 ```
 
-The brain connects automatically and starts learning. No pretraining needed.
+### Multiple brains
+
+Each `brain.py` process connects independently and gets its own body spawned in the
+world. Brains can be started and stopped at any time.
+
+```bash
+# Terminal 1 — game
+python game.py --connect
+
+# Terminal 2 — first brain (slot 0, blue body)
+python brain.py --save brain_a.npz
+
+# Terminal 3 — second brain (slot 1, orange body)
+python brain.py --save brain_b.npz
+
+# Terminal 4 — monitor showing all agents
+python monitor.py
+```
+
+Bodies are despawned automatically ~3 seconds after a brain disconnects. The slot
+ID is recycled so a reconnecting brain gets the same slot and same colour.
 
 ### With brain visualiser
 
@@ -67,6 +87,19 @@ python brain.py --headless 18000 --save brain.npz --log-path brain_log.csv
 Imports `World` directly from `env.py`, bypasses pygame entirely. Useful for
 overnight training runs.
 
+### No-reset mode
+
+Normally the world resets when an AI's life reaches 0. With `--no-reset`, the AI
+stays alive at life=0 / valence=−1 (maximum pain) and must eat to recover:
+
+```bash
+# Connected mode
+python game.py --connect --no-reset
+
+# Headless
+python brain.py --headless 18000 --no-reset --save brain.npz
+```
+
 ---
 
 ## Installation
@@ -83,15 +116,29 @@ pip install -e ".[embodied-game]"
 
 ## The World
 
-The 2D environment contains:
+The 1200 × 900 px environment contains:
 
-- **Walls** — boundary and interior obstacles
-- **Food** — eating increases satiation, triggers a +0.6 pleasure spike, heals
-- **Danger** — contact causes pain (−0.5+ valence), sustained contact drains life
-- **Player body** — human-controlled; can carry and deliver food, trigger "pat" (+0.1 pleasure)
-- **AI body** — sensor-driven; life/satiation/valence meters; dies and resets at life=0
+- **Walls** — hard boundaries
+- **Food** (20 items) — eating restores life +0.15, satiation +0.35, spikes valence +0.6; respawns after ~5 s
+- **Danger** (10 items) — contact triggers pain (valence ≤ −0.5); sustained contact drains life
+- **Player body** — human-controlled; can carry and deliver food (`F`), trigger "pat" (`E`, +0.1 pleasure)
+- **AI bodies** — one per connected brain; each has its own sensor inputs, meters, and actions
 
-The player can accelerate learning by feeding the AI and patting it.
+The player can accelerate learning by feeding AIs and patting them.
+
+---
+
+## Game HUD
+
+The bottom HUD has two panels:
+
+| Panel | Content |
+|-------|---------|
+| Left (player) | Life / Satiation / Valence bars, vision strip, tactile strip |
+| Right (controls) | Key bindings, step / death counter, one status line per connected AI |
+
+Each AI status line shows slot number, life, valence, and satiation in its slot colour.
+For full per-agent sensor detail use `monitor.py`.
 
 ---
 
@@ -217,6 +264,7 @@ python brain.py [options]
   --carrier                [Phase 2 stub] Carrier wave scaffold — no-op in Phase 1
   --assess-every N         K assessment interval in steps (default: 300)
   --no-learn               Freeze W_out (inference only)
+  --no-reset               Keep AI alive at life=0/valence=-1 on death (headless only)
   --save PATH              Save W_out + critic state periodically and on exit
   --load PATH              Load previously saved .npz before starting
   --headless N             Run N steps against World directly (no display)
@@ -244,6 +292,17 @@ and reproducible from `--seed`, so they don't need saving.
 
 ---
 
+## Game CLI
+
+```
+python game.py [options]
+
+  --connect      Enable the multi-agent ZeroMQ connector (required for brains)
+  --no-reset     Keep AIs alive at life=0/valence=-1 on death instead of respawning
+```
+
+---
+
 ## Tips for Training
 
 **Learning is slow at first** — the brain starts with near-zero W_out and relies
@@ -256,6 +315,10 @@ way to teach food-seeking.
 
 **Try different seeds** — `--seed` changes the reservoir init, which changes the
 resting motor bias. Some seeds explore more naturally than others.
+
+**Compare multiple seeds simultaneously** — run several `brain.py` processes at once
+with different seeds, all connected to the same game. Watch which seeds develop
+food-seeking behaviour first.
 
 **Headless pretraining** — run headless overnight, then connect to the live game:
 
@@ -272,7 +335,7 @@ python brain.py --load brain.npz --save brain.npz --log-path brain_log.csv
 from connector import AgentConnector
 
 client = AgentConnector()
-client.connect()
+client.connect()   # registers with the game, gets a slot + dedicated ports
 obs, reward, done, step = client.recv_obs()
 
 while True:
@@ -287,8 +350,9 @@ Or headless, without ZeroMQ:
 from env import World
 
 world = World(seed=42)
+world.add_agent()              # spawn one AI body
 obs = world.get_ai_observation()   # float32 (263,)
-world.step(ai_action=(1.0, 0.0, 0.0))
+world.step(ai_actions=[(1.0, 0.0, 0.0)])
 ```
 
 ---
@@ -410,8 +474,10 @@ systematic comparison across phases.
 
 | Port | Direction | Content |
 |------|-----------|---------|
-| 5557 | game → brain | obs packet (1061 bytes): step, done, reward, obs[263] |
-| 5558 | brain → game | act packet (12 bytes): fwd, turn, eat |
+| 5555 | game → monitor | PUB broadcast — all agents' obs each step (read-only, no body) |
+| 5556 | brain → game | REQ/REP registration — brain sends `b"R"`, game replies with slot+ports |
+| 5557 + 2N | game → brain N | PUSH/PULL obs packet (1061 bytes): step, done, reward, obs[263] |
+| 5558 + 2N | brain N → game | PUSH/PULL act packet (12 bytes): fwd, turn, eat |
 
-The brain can lag or disconnect freely — the game uses the last received action.
+Slot 0 uses ports 5557/5558, slot 1 uses 5559/5560, and so on.
 Full packet layout: see `INTEGRATION.md`.

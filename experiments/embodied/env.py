@@ -270,22 +270,32 @@ class World:
 
     Actions: (forward ∈ [-1,1], turn ∈ [-1,1], eat ∈ {0,1}).
 
-    When either entity's life reaches 0 the world auto-resets.
+    When either entity's life reaches 0 the world auto-resets unless
+    ``no_reset_on_death`` is True, in which case the AI is kept alive at
+    life=0 with maximum pain (valence=−1) so it can learn to recover by eating.
     """
 
-    def __init__(self, seed: int = 42) -> None:
+    def __init__(self, seed: int = 42, no_reset_on_death: bool = False) -> None:
         self._seed = seed
         self._rng  = np.random.default_rng(seed)
         self.paused: bool = False
+        self.no_reset_on_death: bool = no_reset_on_death
 
         self.foods   = self._spawn_foods(FOOD_COUNT)
         self.dangers = self._spawn_dangers(DANGER_COUNT)
-        ai_start = self._near_food_start() if SPAWN_NEAR_FOOD else _AI_START
-        self.ai     = Entity(*ai_start)
+        self.agents: List[Entity] = []
         self.player = Entity(*_PLAYER_START)
         self.player_active: bool = True
         self.step_count: int  = 0
         self.death_count: int = 0
+
+    @property
+    def ai(self) -> Entity:
+        """Convenience accessor for the first active agent."""
+        for a in self.agents:
+            if a is not None:
+                return a
+        raise IndexError("No active agents")
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -295,17 +305,23 @@ class World:
         player_action: Tuple[float, float, float] = (0.0, 0.0, 0.0),
         pat:  bool = False,
         feed: bool = False,
+        ai_actions: Optional[List[Tuple[float, float, float]]] = None,
     ) -> None:
         if self.paused:
             return
 
-        ai_fwd,  ai_turn,  ai_eat  = ai_action
-        pl_fwd,  pl_turn,  pl_eat  = player_action
+        # Build per-agent action list: ai_actions overrides ai_action for all slots
+        if ai_actions is None:
+            ai_actions = [ai_action] + [(0.0, 0.0, 0.0)] * (len(self.agents) - 1)
 
-        self.ai.apply_action(
-            float(np.clip(ai_fwd,  -1, 1)),
-            float(np.clip(ai_turn, -1, 1)),
-        )
+        pl_fwd, pl_turn, pl_eat = player_action
+
+        for i, agent in enumerate(self.agents):
+            if agent is None:
+                continue
+            fwd, turn = (ai_actions[i][0], ai_actions[i][1]) if i < len(ai_actions) else (0.0, 0.0)
+            agent.apply_action(float(np.clip(fwd, -1, 1)), float(np.clip(turn, -1, 1)))
+
         if self.player_active:
             self.player.apply_action(
                 float(np.clip(pl_fwd,  -1, 1)),
@@ -319,38 +335,95 @@ class World:
         if feed:
             self._try_feed_ai()
 
-        ai_ate = self._resolve_food(self.ai,    bool(ai_eat > 0.5))
+        agent_ate = [
+            (self._resolve_food(
+                agent,
+                bool(ai_actions[i][2] > 0.5) if i < len(ai_actions) else False,
+            ) if agent is not None else False)
+            for i, agent in enumerate(self.agents)
+        ]
         pl_ate = (self._resolve_food(self.player, bool(pl_eat > 0.5))
                   if self.player_active else False)
 
-        self._update_entity(self.ai,    other=self.player, ate_food=ai_ate)
+        # Build per-entity "others" list (all entities visible to each entity)
+        active_agents = [a for a in self.agents if a is not None]
+        all_entities = ([self.player] if self.player_active else []) + active_agents
+        for i, agent in enumerate(self.agents):
+            if agent is None:
+                continue
+            others = [e for e in all_entities if e is not agent]
+            self._update_entity(agent, others, agent_ate[i])
         if self.player_active:
-            self._update_entity(self.player, other=self.ai,    ate_food=pl_ate)
+            self._update_entity(self.player, active_agents, pl_ate)
 
         self._tick_food_respawns()
         self.step_count += 1
 
-        if not self.ai.alive or not self.player.alive:
+        # Death handling
+        dead_slots = [i for i, a in enumerate(self.agents) if a is not None and not a.alive]
+        if not self.player.alive:
             self.death_count += 1
             self.reset(keep_counts=True)
+            return
+
+        if dead_slots:
+            for i in dead_slots:
+                self.death_count += 1
+                if self.no_reset_on_death:
+                    self.agents[i].alive = True
+                    self.agents[i].meters.life = 0.0
+                    self.agents[i].meters.valence = -1.0
+                else:
+                    self._respawn_agent(i)
 
     def reset(self, keep_counts: bool = False) -> None:
         counts = (self.step_count, self.death_count) if keep_counts else (0, 0)
         self.foods   = self._spawn_foods(FOOD_COUNT)
         self.dangers = self._spawn_dangers(DANGER_COUNT)
-        ai_start = self._near_food_start() if SPAWN_NEAR_FOOD else _AI_START
-        self.ai     = Entity(*ai_start)
-        self.player = Entity(*_PLAYER_START)
+        self.agents  = []
+        self.player  = Entity(*_PLAYER_START)
         self.step_count  = counts[0] if keep_counts else 0
         self.death_count = counts[1] if keep_counts else 0
 
+    def add_agent(self, x: Optional[float] = None, y: Optional[float] = None,
+                  heading: Optional[float] = None) -> int:
+        """Spawn a new AI entity and return its slot index in self.agents."""
+        if x is None:
+            start = self._near_food_start() if SPAWN_NEAR_FOOD else _AI_START
+            sx, sy, sh = start
+        else:
+            sx, sy, sh = x, y, heading or 0.0
+        entity = Entity(float(sx), float(sy), float(sh))
+        # Reuse first empty slot to preserve slot→index mapping for live agents
+        for i, a in enumerate(self.agents):
+            if a is None:
+                self.agents[i] = entity
+                return i
+        self.agents.append(entity)
+        return len(self.agents) - 1
+
+    def remove_agent(self, slot: int) -> None:
+        """Remove an AI entity by slot index (leaves None placeholder to preserve higher-slot indices)."""
+        if 0 <= slot < len(self.agents):
+            self.agents[slot] = None
+
+    def _respawn_agent(self, slot: int) -> None:
+        """Replace a dead agent with a fresh entity at a spawn position."""
+        start = self._near_food_start() if SPAWN_NEAR_FOOD else _AI_START
+        self.agents[slot] = Entity(*start)
+
     def get_observation(self, entity: Entity) -> np.ndarray:
         """263-dim observation vector, all values ∈ [0, 1]."""
-        other  = self.player if entity is self.ai else self.ai
-        vision  = self._cast_rays(entity, other).flatten()   # (242,)
-        tactile = entity.tactile.as_array()                  # (18,)
-        meters  = entity.meters.as_array()                   # (3,)
-        return np.concatenate([vision, tactile, meters])     # (263,)
+        active   = [a for a in self.agents if a is not None]
+        all_ents = ([self.player] if self.player_active else []) + active
+        others   = [e for e in all_ents if e is not entity]
+        vision   = self._cast_rays(entity, others).flatten()   # (242,)
+        tactile  = entity.tactile.as_array()                   # (18,)
+        meters   = entity.meters.as_array()                    # (3,)
+        return np.concatenate([vision, tactile, meters])       # (263,)
+
+    def get_agent_observation(self, slot: int) -> np.ndarray:
+        return self.get_observation(self.agents[slot])
 
     def get_ai_observation(self) -> np.ndarray:
         return self.get_observation(self.ai)
@@ -365,7 +438,7 @@ class World:
 
     # ── Ray casting ───────────────────────────────────────────────────────────
 
-    def _cast_rays(self, entity: Entity, other: Entity) -> np.ndarray:
+    def _cast_rays(self, entity: Entity, others: List[Entity]) -> np.ndarray:
         """Returns (N_RAYS, 2) float32: [type_norm, proximity] per ray."""
         angles = np.linspace(
             entity.heading - VISION_HALF_ANGLE,
@@ -374,7 +447,7 @@ class World:
         )
         result = np.zeros((N_RAYS, 2), dtype=np.float32)
         for i, angle in enumerate(angles):
-            hit_type, dist = self._cast_ray(entity, angle, other)
+            hit_type, dist = self._cast_ray(entity, angle, others)
             result[i, 0] = hit_type / (HIT_TYPES - 1)
             result[i, 1] = (1.0 - dist / VISION_RANGE) if hit_type != HIT_NONE else 0.0
         return result
@@ -396,7 +469,7 @@ class World:
         return nearest
 
     def _cast_ray(
-        self, entity: Entity, angle: float, other: Entity
+        self, entity: Entity, angle: float, others: List[Entity]
     ) -> Tuple[int, float]:
         dx, dy    = float(np.cos(angle)), float(np.sin(angle))
         ox, oy    = entity.x, entity.y
@@ -418,7 +491,7 @@ class World:
         if d is not None:
             best_dist, best_type = d, HIT_DANGER
 
-        if not (other is self.player and not self.player_active):
+        for other in others:
             d = _ray_circle_dist(ox, oy, dx, dy, other.x, other.y, other.radius)
             if d is not None and skip_dist < d < best_dist:
                 best_dist, best_type = d, HIT_OTHER
@@ -503,27 +576,40 @@ class World:
         diff = (food_angle - entity.heading + np.pi) % (2.0 * np.pi) - np.pi
         return abs(diff) <= EAT_ZONE_ANGLE
 
-    def _resolve_entities(self) -> None:
-        if not self.player_active:
-            return
-        dx   = self.player.x - self.ai.x
-        dy   = self.player.y - self.ai.y
+    def _push_apart(self, a: Entity, b: Entity) -> None:
+        dx   = b.x - a.x
+        dy   = b.y - a.y
         dist = float(np.hypot(dx, dy))
-        min_dist = self.ai.radius + self.player.radius
+        min_dist = a.radius + b.radius
         if 0 < dist < min_dist:
             overlap = (min_dist - dist + 0.5) * 0.5
             nx, ny  = dx / dist, dy / dist
-            r = self.ai.radius
-            self.ai.x = float(np.clip(self.ai.x - nx * overlap, r, WORLD_W - r))
-            self.ai.y = float(np.clip(self.ai.y - ny * overlap, r, WORLD_H - r))
-            r = self.player.radius
-            self.player.x = float(np.clip(self.player.x + nx * overlap, r, WORLD_W - r))
-            self.player.y = float(np.clip(self.player.y + ny * overlap, r, WORLD_H - r))
+            ra = a.radius
+            a.x = float(np.clip(a.x - nx * overlap, ra, WORLD_W - ra))
+            a.y = float(np.clip(a.y - ny * overlap, ra, WORLD_H - ra))
+            rb = b.radius
+            b.x = float(np.clip(b.x + nx * overlap, rb, WORLD_W - rb))
+            b.y = float(np.clip(b.y + ny * overlap, rb, WORLD_H - rb))
+
+    def _resolve_entities(self) -> None:
+        if self.player_active:
+            for agent in self.agents:
+                if agent is not None:
+                    self._push_apart(agent, self.player)
+        for i in range(len(self.agents)):
+            if self.agents[i] is None:
+                continue
+            for j in range(i + 1, len(self.agents)):
+                if self.agents[j] is not None:
+                    self._push_apart(self.agents[i], self.agents[j])
 
     def _try_pat_ai(self) -> None:
-        dist = float(np.hypot(self.ai.x - self.player.x, self.ai.y - self.player.y))
-        if dist < PAT_TOUCH_DIST:
-            self.ai.meters.valence = min(1.0, self.ai.meters.valence + PAT_PLEASURE)
+        for agent in self.agents:
+            if agent is None:
+                continue
+            dist = float(np.hypot(agent.x - self.player.x, agent.y - self.player.y))
+            if dist < PAT_TOUCH_DIST:
+                agent.meters.valence = min(1.0, agent.meters.valence + PAT_PLEASURE)
 
     def _try_feed_ai(self) -> None:
         for food in self.foods:
@@ -531,26 +617,30 @@ class World:
                 continue
             in_player = (float(np.hypot(food.x - self.player.x, food.y - self.player.y))
                          < self.player.radius + FOOD_RADIUS + FEED_REACH_BONUS)
-            if in_player and self._in_eat_zone(self.ai, food):
-                food.active = False
-                food.respawn_timer = FOOD_RESPAWN_STEPS
-                m = self.ai.meters
-                m.valence   = min(1.0, m.valence   + FOOD_PLEASURE)
-                m.satiation = min(1.0, m.satiation + FOOD_SATIATION_GAIN)
-                m.life      = min(1.0, m.life      + FOOD_LIFE_GAIN)
-                return
+            for agent in self.agents:
+                if agent is None:
+                    continue
+                if in_player and self._in_eat_zone(agent, food):
+                    food.active = False
+                    food.respawn_timer = FOOD_RESPAWN_STEPS
+                    m = agent.meters
+                    m.valence   = min(1.0, m.valence   + FOOD_PLEASURE)
+                    m.satiation = min(1.0, m.satiation + FOOD_SATIATION_GAIN)
+                    m.life      = min(1.0, m.life      + FOOD_LIFE_GAIN)
+                    return
 
     # ── Tactile sensing ───────────────────────────────────────────────────────
 
-    def _update_tactile(self, entity: Entity, other: Entity) -> None:
+    def _update_tactile(self, entity: Entity, others: List[Entity]) -> None:
         """Recompute all receptor signals for entity."""
         body   = np.zeros(N_TOUCH_BODY,   dtype=np.float32)
         prongs = np.zeros(N_TOUCH_PRONGS, dtype=np.float32)
         self._sense_walls(entity, body)
         self._sense_foods(entity, body)
         self._sense_dangers(entity, body)
-        self._sense_other_entity(entity, other, body)
-        self._sense_prongs(entity, other, prongs)
+        for other in others:
+            self._sense_other_entity(entity, other, body)
+        self._sense_prongs(entity, others, prongs)
         entity.tactile.body[:]   = body
         entity.tactile.prongs[:] = prongs
 
@@ -585,16 +675,17 @@ class World:
     def _sense_other_entity(
         self, entity: Entity, other: Entity, body: np.ndarray
     ) -> None:
-        if other is self.player and not self.player_active:
-            return
         threshold = entity.radius + other.radius + TOUCH_MARGIN
         if float(np.hypot(other.x - entity.x, other.y - entity.y)) < threshold:
             angle = float(np.arctan2(other.y - entity.y, other.x - entity.x))
             _write_receptor(body, entity.heading, angle, TOUCH_ENTITY)
 
-    def _sense_prongs(self, entity: Entity, other: Entity, prongs: np.ndarray) -> None:
+    def _sense_prongs(self, entity: Entity, others: List[Entity], prongs: np.ndarray) -> None:
         for pi, side in enumerate((-1.0, 1.0)):
-            prongs[pi] = self._prong_signal(entity, side, other)
+            prongs[pi] = max(
+                (self._prong_signal(entity, side, other) for other in others),
+                default=0.0,
+            )
 
     def _prong_signal(self, entity: Entity, side: float, other: Entity) -> float:
         """
@@ -622,9 +713,8 @@ class World:
         for danger in self.dangers:
             if _capsule_dist(danger.x, danger.y, p1x, p1y, p2x, p2y) < PRONG_CAPSULE_R + DANGER_RADIUS + TOUCH_MARGIN:
                 max_sig = max(max_sig, TOUCH_DANGER)
-        if not (other is self.player and not self.player_active):
-            if _capsule_dist(other.x, other.y, p1x, p1y, p2x, p2y) < PRONG_CAPSULE_R + other.radius + TOUCH_MARGIN:
-                max_sig = max(max_sig, TOUCH_ENTITY)
+        if _capsule_dist(other.x, other.y, p1x, p1y, p2x, p2y) < PRONG_CAPSULE_R + other.radius + TOUCH_MARGIN:
+            max_sig = max(max_sig, TOUCH_ENTITY)
         return max_sig
 
     # ── Vision-based danger aversion ─────────────────────────────────────────
@@ -693,10 +783,10 @@ class World:
             entity.alive = False
 
     def _update_entity(
-        self, entity: Entity, other: Entity, ate_food: bool
+        self, entity: Entity, others: List[Entity], ate_food: bool
     ) -> None:
         m = entity.meters
-        self._update_tactile(entity, other)
+        self._update_tactile(entity, others)
 
         entity.danger_contact_steps = (
             entity.danger_contact_steps + 1 if entity.tactile.has_danger() else 0

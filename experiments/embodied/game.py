@@ -24,6 +24,7 @@ from __future__ import annotations
 import os
 import sys
 import numpy as np
+from typing import List
 
 try:
     import pygame
@@ -75,6 +76,16 @@ C_VAL_NEG      = (215,  55,  55)
 C_VAL_POS      = (155,  75, 215)
 
 C_DEATH_FLASH  = (180,  30,  30)
+
+# Per-slot AI palettes — slot 0 reuses C_AI / C_AI_RING
+_AI_PALETTES = [
+    (C_AI,                    C_AI_RING),                  # slot 0: blue
+    ((210, 100,  50), (255, 150,  80)),                     # slot 1: orange
+    ((160,  80, 200), (200, 130, 255)),                     # slot 2: purple
+    (( 60, 200, 180), (100, 240, 220)),                     # slot 3: teal
+    ((200, 200,  50), (255, 255,  80)),                     # slot 4: yellow
+    ((200,  80, 150), (255, 130, 195)),                     # slot 5: pink
+]
 
 # Ray hit → colour
 RAY_COLORS = {
@@ -149,7 +160,7 @@ def _draw_vision_strip(
     surf: pygame.Surface,
     entity: Entity,
     world: World,
-    other: Entity,
+    others: List[Entity],
     sx: int, vy: int, strip_w: int, strip_h: int,
 ) -> None:
     angles = np.linspace(
@@ -158,7 +169,7 @@ def _draw_vision_strip(
         N_RAYS,
     )
     for i, angle in enumerate(angles):
-        hit_type, dist = world._cast_ray(entity, angle, other)
+        hit_type, dist = world._cast_ray(entity, angle, others)
         prox  = (1.0 - dist / VISION_RANGE) if hit_type != HIT_NONE else 0.0
         base  = RAY_COLORS[hit_type]
         alpha = 0.25 if hit_type == HIT_NONE else 0.35 + 0.65 * prox
@@ -173,7 +184,7 @@ def draw_sensor_strips(
     surf: pygame.Surface,
     entity: Entity,
     world: World,
-    other: Entity,
+    others: List[Entity],
     x: int, y: int,
     strip_w: int,
     font_s: pygame.font.Font,
@@ -206,7 +217,7 @@ def draw_sensor_strips(
     pygame.draw.rect(surf, C_METER_BG, (sx, ty, strip_w + DOT_STEP * 4, STRIP_H), border_radius=2)
 
     # ── vision strip ──────────────────────────────────────────────────────────
-    _draw_vision_strip(surf, entity, world, other, sx, vy, strip_w, STRIP_H)
+    _draw_vision_strip(surf, entity, world, others, sx, vy, strip_w, STRIP_H)
 
     # Centre marker (forward direction)
     mid_x = sx + strip_w // 2
@@ -311,7 +322,7 @@ def draw_vision(
     ray_surf: pygame.Surface,
     entity: Entity,
     world: World,
-    other: Entity,
+    others: List[Entity],
 ) -> None:
     ray_surf.fill((0, 0, 0, 0))
     angles = np.linspace(
@@ -321,7 +332,7 @@ def draw_vision(
     )
     ox, oy = int(entity.x), int(entity.y)
     for angle in angles:
-        hit_type, dist = world._cast_ray(entity, angle, other)
+        hit_type, dist = world._cast_ray(entity, angle, others)
         proximity = (1.0 - dist / VISION_RANGE) if hit_type != HIT_NONE else 0.0
         base = RAY_COLORS[hit_type]
         if hit_type == HIT_NONE:
@@ -342,7 +353,7 @@ def draw_entity_hud(
     surf: pygame.Surface,
     entity: Entity,
     world: World,
-    other: Entity,
+    others: List[Entity],
     label: str,
     color: tuple,
     font_s: pygame.font.Font,
@@ -363,7 +374,7 @@ def draw_entity_hud(
 
     # Sensor strips (vision + tactile) — full panel width, below meters
     strip_w = panel_w - 60   # leave margin for labels + prong dots
-    draw_sensor_strips(surf, entity, world, other,
+    draw_sensor_strips(surf, entity, world, others,
                        x, my + 56, strip_w, font_s)
 
 
@@ -377,26 +388,21 @@ def draw_hud(
     pygame.draw.rect(surf, C_HUD_BG, (0, top, SCREEN_W, HUD_HEIGHT))
     pygame.draw.line(surf, C_BORDER, (0, top), (SCREEN_W, top), 1)
 
-    panel_w = SCREEN_W // 3
+    panel_w = SCREEN_W // 2
 
-    draw_entity_hud(surf, world.ai, world, world.player,
-                    "AI ENTITY", C_AI,
+    # Panel 1: player
+    pl_others = [a for a in world.agents if a is not None]
+    p_color   = C_PLAYER if world.player_active else C_PLAYER_OFF
+    draw_entity_hud(surf, world.player, world, pl_others,
+                    "PLAYER", p_color,
                     font_s, font_m, x=14, y=top + 8,
                     panel_w=panel_w - 14)
 
     pygame.draw.line(surf, C_HUD_DIV,
                      (panel_w, top + 6), (panel_w, top + HUD_HEIGHT - 6), 1)
 
-    p_color = C_PLAYER if world.player_active else C_PLAYER_OFF
-    draw_entity_hud(surf, world.player, world, world.ai,
-                    "PLAYER", p_color,
-                    font_s, font_m, x=panel_w + 14, y=top + 8,
-                    panel_w=panel_w - 14)
-
-    pygame.draw.line(surf, C_HUD_DIV,
-                     (panel_w * 2, top + 6), (panel_w * 2, top + HUD_HEIGHT - 6), 1)
-
-    sx = panel_w * 2 + 14
+    # Panel 2: controls + agent status
+    sx = panel_w + 14
     sy = top + 8
     player_on = world.player_active
     surf.blit(font_m.render(
@@ -415,6 +421,20 @@ def draw_hud(
     ]
     for i, line in enumerate(lines):
         surf.blit(font_s.render(line, True, C_TEXT_DIM), (sx, sy + 18 + i * 15))
+
+    # Agent status lines (one per connected brain)
+    active = [(i, a) for i, a in enumerate(world.agents) if a is not None]
+    if not active:
+        ay = sy + 18 + len(lines) * 15
+        surf.blit(font_s.render("no agents connected", True, C_TEXT_DIM), (sx, ay))
+    else:
+        for row, (i, agent) in enumerate(active):
+            color, _ = _AI_PALETTES[i % len(_AI_PALETTES)]
+            line = (f"AI #{i}  L:{agent.meters.life:.2f}  "
+                    f"V:{agent.meters.valence:+.2f}  "
+                    f"S:{agent.meters.satiation:+.2f}")
+            ay = sy + 18 + len(lines) * 15 + row * 13
+            surf.blit(font_s.render(line, True, color), (sx, ay))
 
 
 # ── Input helpers ─────────────────────────────────────────────────────────────
@@ -471,6 +491,7 @@ def _draw_world(
     screen: pygame.Surface,
     ray_surf: pygame.Surface,
     world: World,
+    font_s: pygame.font.Font,
 ) -> None:
     screen.fill(C_BG)
     pygame.draw.rect(screen, C_BORDER, (0, 0, WORLD_W, WORLD_H), 2)
@@ -481,9 +502,26 @@ def _draw_world(
     for danger in world.dangers:
         draw_danger(screen, danger)
 
-    draw_vision(screen, ray_surf, world.ai, world, world.player)
+    # Vision rays for slot 0 only (showing all would be cluttered)
+    active_agents = [a for a in world.agents if a is not None]
+    if active_agents:
+        ai0     = active_agents[0]
+        others0 = [e for e in ([world.player] if world.player_active else []) + active_agents
+                   if e is not ai0]
+        draw_vision(screen, ray_surf, ai0, world, others0)
 
-    draw_entity(screen, world.ai, C_AI, C_AI_RING)
+    # Draw all AI bodies with slot-specific colours
+    n_active = len(active_agents)
+    for i, agent in enumerate(world.agents):
+        if agent is None:
+            continue
+        color, ring = _AI_PALETTES[i % len(_AI_PALETTES)]
+        draw_entity(screen, agent, color, ring)
+        if n_active > 1:
+            lbl = font_s.render(f"#{i}", True, ring)
+            screen.blit(lbl, (int(agent.x) - lbl.get_width() // 2,
+                               int(agent.y) - int(agent.radius) - 13))
+
     if world.player_active:
         draw_entity(screen, world.player, C_PLAYER, C_PLAYER_RING)
 
@@ -517,13 +555,13 @@ def _draw_pause_overlay(screen: pygame.Surface) -> None:
 def main() -> None:
     import sys as _sys
     use_connector = "--connect" in _sys.argv
+    no_reset      = "--no-reset" in _sys.argv
 
     conn = None
     if use_connector:
-        from connector import GameConnector
-        conn = GameConnector()
+        from connector import MultiGameConnector
+        conn = MultiGameConnector()
         conn.start()
-        print(f"[connector] listening on ports {conn._obs_port} / {conn._act_port}")
 
     pygame.init()
     screen = pygame.display.set_mode((SCREEN_W, SCREEN_H))
@@ -531,11 +569,12 @@ def main() -> None:
     clock    = pygame.time.Clock()
     font_s   = pygame.font.SysFont("monospace", 11)
     font_m   = pygame.font.SysFont("monospace", 13, bold=True)
-    world    = World(seed=42)
+    world    = World(seed=42, no_reset_on_death=no_reset)
     ray_surf = pygame.Surface((WORLD_W, WORLD_H), pygame.SRCALPHA)
 
-    paused      = False
-    death_flash = 0
+    paused               = False
+    death_flash          = 0
+    _prev_player_deaths  = 0
 
     running = True
     while running:
@@ -545,20 +584,45 @@ def main() -> None:
 
         player_act = _player_action(world, paused)
 
-        # ── AI action — from connector if active, otherwise zero ───────────────
+        # Poll for newly connected brains — spawn a body per new slot
         if conn is not None:
-            ai_action = conn.recv_action()
-        else:
-            ai_action = (0.0, 0.0, 0.0)
+            new_slots = conn.poll_registrations(world.step_count)
+            for _ in new_slots:
+                world.add_agent()
 
-        prev_deaths = world.death_count
-        world.step(ai_action=ai_action, player_action=player_act, pat=pat, feed=feed)
+        # Gather actions for all registered agents
         if conn is not None:
-            conn.send_obs(world)
-        if world.death_count > prev_deaths:
+            ai_actions = conn.recv_actions(len(world.agents), world.step_count)
+            # Despawn bodies for brains that stopped responding
+            for slot_id in conn.disconnected_slots(world.step_count):
+                world.remove_agent(slot_id)
+                conn.remove_slot(slot_id)
+        else:
+            ai_actions = [(0.0, 0.0, 0.0)] * len(world.agents)
+
+        n_agents_before = sum(1 for a in world.agents if a is not None)
+        world.step(ai_actions=ai_actions, player_action=player_act, pat=pat, feed=feed)
+
+        # Detect player death: world.reset() clears all agents
+        active_after = sum(1 for a in world.agents if a is not None)
+        player_died = (n_agents_before > 0 and active_after == 0) or \
+                      (n_agents_before == 0 and world.death_count > _prev_player_deaths)
+        _prev_player_deaths = world.death_count
+
+        # If the world reset (player died), re-spawn one body per registered brain
+        if conn is not None and active_after < conn.n_slots:
+            for slot_id in conn._slots:
+                if slot_id >= len(world.agents) or world.agents[slot_id] is None:
+                    world.add_agent()
+
+        # Send observations to all connected brains
+        if conn is not None:
+            conn.send_obs_all(world)
+
+        if player_died:
             death_flash = 45
 
-        _draw_world(screen, ray_surf, world)
+        _draw_world(screen, ray_surf, world, font_s)
         death_flash = _draw_death_flash(screen, death_flash)
         if paused:
             _draw_pause_overlay(screen)

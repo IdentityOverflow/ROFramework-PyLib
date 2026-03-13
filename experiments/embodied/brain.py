@@ -73,11 +73,11 @@ _LIFE_IDX  = 260   # obs[260:263] = [life, satiation_norm, valence_norm]
 # ── Hyperparameters ────────────────────────────────────────────────────────────
 RESERVOIR_SIZE  = 4096
 SPECTRAL_RADIUS = 0.99
-NOISE_SCALE     = 0.9
+NOISE_SCALE     = 90.0
 ALPHA           = 1.0
 BIAS_SCALE      = 0.0   # must stay 0 — any bias → spinning attractor via W_out
 
-EXPLORE_NOISE   = 0.9
+EXPLORE_NOISE   = 90.0
 EAT_THRESHOLD   = 0.0
 
 LEARN_LR     = 1e-4
@@ -504,7 +504,8 @@ def run_headless(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
         sys.path.insert(0, _here)
     from env import World  # noqa: PLC0415
 
-    world      = World(seed=args.seed)
+    world      = World(seed=args.seed, no_reset_on_death=args.no_reset)
+    world.add_agent()   # headless mode bypasses registration; spawn slot 0 directly
     csv_writer = _open_log(args.log_path) if args.log_path else None
     n_steps    = args.headless
     step       = 0
@@ -520,7 +521,9 @@ def run_headless(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
             obs    = world.get_ai_observation()
             reward = float(world.ai.meters.valence)
             life   = float(obs[_LIFE_IDX])
-            done   = bool(life > 0.9 and prev_life < 0.1)
+            # Detect episode boundary: life jumps from near-0 to near-1 after reset.
+            # With --no-reset life stays at 0, so there are no episode boundaries.
+            done   = (not args.no_reset) and bool(life > 0.9 and prev_life < 0.1)
             prev_life = life
 
             fwd, turn, eat = brain.forward(obs)
@@ -587,6 +590,8 @@ examples:
     parser.add_argument("--load",            metavar="PATH")
     parser.add_argument("--headless",        type=int, default=0, metavar="N",
                         help="Run N headless steps then exit (0 = connect to game)")
+    parser.add_argument("--no-reset",        action="store_true",
+                        help="Headless: keep AI alive at life=0/valence=-1 on death (no world reset)")
     parser.add_argument("--seed",            type=int, default=42)
     parser.add_argument("--log-every",       type=int, default=LOG_EVERY,  metavar="N")
     parser.add_argument("--save-every",      type=int, default=SAVE_EVERY, metavar="N")
