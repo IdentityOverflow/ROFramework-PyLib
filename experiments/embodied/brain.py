@@ -44,6 +44,7 @@ import csv
 import os
 import signal
 import sys
+from datetime import datetime
 from typing import Optional
 
 import numpy as np
@@ -364,7 +365,7 @@ _K_DOF_NAMES = [d.name for d in dofs.EXTERNAL_DOFS]   # fixed column order for C
 
 def _open_log(path: str) -> csv.DictWriter:
     k_fields = [f"K_{n}" for n in _K_DOF_NAMES]
-    fields   = ["step", "mean_reward", "valence_pred", "w_norm",
+    fields   = ["timestamp", "step", "mean_reward", "valence_pred", "w_norm",
                 "eat_count", "episodes", "mean_fwd", "mean_turn"] + k_fields
     is_new = not os.path.exists(path)
     fh     = open(path, "a", newline="", buffering=1)
@@ -384,6 +385,7 @@ def _log(step, reward_sum, log_every, valence_pred, w_norm,
           f"|W_out| {w_norm:.4f}  fwd:{mean_fwd:+.2f}  turn:{mean_turn:+.2f}  "
           f"eat:{eat_count}  ep:{episodes}")
     return {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "step": step, "mean_reward": f"{mean_r:.4f}",
         "valence_pred": f"{valence_pred:.4f}", "w_norm": f"{w_norm:.4f}",
         "eat_count": eat_count, "episodes": episodes,
