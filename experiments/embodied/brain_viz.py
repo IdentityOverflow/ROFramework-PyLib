@@ -39,6 +39,12 @@ from brain import (  # noqa: E402
     _open_log,
     _log_step,
     _recv_with_retry,
+    _resolve_config,
+    _resolve_paths,
+    _build_brain,
+    _load_world_config,
+    save_config,
+    _config_path,
 )
 
 # ── Window / layout ────────────────────────────────────────────────────────────
@@ -383,7 +389,8 @@ def run_connected_viz(brain: EmbodiedBrain, viz: BrainViz,
 def run_headless_viz(brain: EmbodiedBrain, viz: BrainViz,
                      args: argparse.Namespace) -> None:
     from env import World  # noqa: PLC0415
-    world      = World(seed=args.seed)
+    world_cfg  = _load_world_config(args._world_config) if getattr(args, "_world_config", None) else {}
+    world      = World(seed=getattr(args, "seed", 42), cfg=world_cfg)
     csv_writer = _open_log(args.log_path) if args.log_path else None
     st         = _make_run_state()
     prev_life  = 1.0
@@ -428,31 +435,60 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 examples:
-  python brain_viz.py                     connect to game.py --connect
-  python brain_viz.py --headless 3600     headless 3600 steps + visualiser
-  python brain_viz.py --load brain.npz    resume from checkpoint
+  python brain_viz.py --config brains/configs/bob-16k.json
+  python brain_viz.py --config brains/configs/bob-16k.json --headless 3600
+  python brain_viz.py --config brains/configs/bob-16k.json --device cpu
 """)
-    parser.add_argument("--save",            metavar="PATH")
-    parser.add_argument("--load",            metavar="PATH")
-    parser.add_argument("--no-learn",        action="store_true")
-    parser.add_argument("--action-feedback", action="store_true")
-    parser.add_argument("--res-size",        type=int, default=4096, metavar="N")
-    parser.add_argument("--headless",        type=int, default=0, metavar="N")
-    parser.add_argument("--seed",            type=int, default=42)
-    parser.add_argument("--log-every",       type=int, default=LOG_EVERY,  metavar="N")
-    parser.add_argument("--save-every",      type=int, default=SAVE_EVERY, metavar="N")
-    parser.add_argument("--log-path",        metavar="PATH")
+    parser.add_argument("--config",     metavar="PATH",
+                        help="JSON config file (see brains/configs/config-template.json)")
+    parser.add_argument("--device",     choices=["cuda", "cpu"],
+                        help="Override device from config")
+    parser.add_argument("--no-learn",   action="store_true",
+                        help="Freeze W_out (inference only)")
+    parser.add_argument("--carrier",    action="store_true",
+                        help="[Phase 2 stub] Carrier wave scaffold — no-op in Phase 1")
+    parser.add_argument("--save",       metavar="PATH", default=None,
+                        help="Override brain_path from config for this run")
+    parser.add_argument("--load",       metavar="PATH", default=None,
+                        help="Force-load weights from PATH")
+    parser.add_argument("--log-path",   metavar="PATH", default=None,
+                        help="Override log_path from config for this run")
+    parser.add_argument("--headless",   type=int, default=0, metavar="N",
+                        help="Run N headless steps with visualiser (0 = connect to game)")
+    parser.add_argument("--no-reset",   action="store_true",
+                        help="Headless: keep AI alive at life=0/valence=-1 on death")
+    parser.add_argument("--log-every",  type=int, default=LOG_EVERY,  metavar="N")
+    parser.add_argument("--save-every", type=int, default=SAVE_EVERY, metavar="N")
     args = parser.parse_args()
 
-    brain = EmbodiedBrain(
-        config          = {"RESERVOIR_SIZE": args.res_size},
-        action_feedback = args.action_feedback,
-    )
-    if args.load:
-        brain.load(args.load)
-        print(f"Loaded weights from {args.load}")
+    cfg                        = _resolve_config(args)
+    brain_path, log_path, load_path = _resolve_paths(args, cfg)
+    args.save                  = brain_path
+    args.log_path              = log_path
+    args._brain_name           = cfg.get("name") or ""
+    args._world_config         = cfg.get("world_config") or None
+
+    print(f"Building EmbodiedBrain  (res_size={cfg['res_size']}, "
+          f"action_feedback={cfg['action_feedback']})…")
+
+    brain = _build_brain(cfg, args.carrier)
+
+    print(f"  Device:    {brain._dev}")
+    print(f"  res_size:  {cfg['res_size']}")
+    print(f"  W_out:     {tuple(brain.W_out.shape)}  |norm|={brain.w_out_norm:.5f}")
+
+    if load_path:
+        brain.load(load_path)
+        print(f"  Loaded weights from {load_path}  |W_out|={brain.w_out_norm:.5f}")
+    elif brain_path:
+        print(f"  No checkpoint found at {brain_path} — starting fresh.")
+
     if args.no_learn:
         brain.learning_enabled = False
+        print("  Learning disabled.")
+
+    if brain_path:
+        save_config(cfg, _config_path(brain_path))
 
     viz = BrainViz(brain)
 

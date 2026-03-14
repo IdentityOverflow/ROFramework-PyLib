@@ -89,6 +89,14 @@ The visualiser shows:
 - **Rolling plots** — fwd, turn, reward, RPE over the last 600 steps
 - **Spinning alert** — red banner when sustained turn bias is detected
 
+It accepts the same flags as `brain.py` — `--config`, `--device`, `--no-learn`, `--headless`,
+`--no-reset`, `--load`, `--save`.  Auto-load, config save, and world ruleset all work identically.
+
+```bash
+# Headless with live visualiser (useful for watching noise patterns without the game)
+python brain_viz.py --config brains/configs/bob-16k.json --headless 18000
+```
+
 ### Headless (no display)
 
 ```bash
