@@ -2,6 +2,8 @@
   "name": "XL",
   "brain_path": "brains/XL-8k.npz",
   "log_path": "brains/logs/XL-8k.log",
+  "world_config": "rulesets/default.json",
+  "_comment_world_config": "Ruleset this brain was trained on. Used in headless mode; informational in connected mode.",
   "res_size": 8192,
   "spectral_radius": 0.99,
   "noise_scale": 90.0,

@@ -20,6 +20,7 @@ ZeroMQ — no game code needs to change to swap or add agents.
 | `brain_viz.py` | Live pygame visualiser — reservoir heatmap, graph view, rolling signal plots |
 | `monitor.py` | Rich terminal sensor monitor (read-only, no body spawned) |
 | `brains/configs/` | Per-brain JSON config files (hyperparameters, paths, name) |
+| `rulesets/` | World ruleset JSON files (game parameters — food density, meter rates, etc.) |
 | `INTEGRATION.md` | Full wire protocol reference (packet layout, port table) |
 
 ---
@@ -29,9 +30,12 @@ ZeroMQ — no game code needs to change to swap or add agents.
 ### Single brain
 
 ```bash
-# Terminal 1 — game window
+# Terminal 1 — game window (default ruleset)
 cd experiments/embodied
 python game.py --connect
+
+# Terminal 1 — game window with a custom ruleset
+python game.py --connect --rules rulesets/default.json
 
 # Terminal 2 — ESN brain using a config file
 python brain.py --config brains/configs/bob-16k.json
@@ -126,10 +130,13 @@ pip install -e ".[embodied-game]"
 The 1200 × 900 px environment contains:
 
 - **Walls** — hard boundaries
-- **Food** (20 items) — eating restores life +0.15, satiation +0.35, spikes valence +0.6; respawns after ~5 s
-- **Danger** (10 items) — contact triggers pain (valence ≤ −0.5); sustained contact drains life
+- **Food** — eating restores life, satiation, and spikes valence; respawns after a configurable delay
+- **Danger** — contact triggers pain (valence ≤ −0.5); sustained contact drains life
 - **Player body** — human-controlled; can carry and deliver food (`F`), trigger "pat" (`E`, +0.1 pleasure)
 - **AI bodies** — one per connected brain; each has its own sensor inputs, meters, and actions
+
+Default counts and reward values are set in `rulesets/default.json` and can be changed without
+retraining — see the **Rulesets** section below.
 
 The player can accelerate learning by feeding AIs and patting them.
 
@@ -244,24 +251,30 @@ ahead" with "food eaten a moment later".
 
 ## Config Files
 
-All hyperparameters live in a JSON config file.  A documented template is at
+All brain hyperparameters live in a JSON config file.  A documented template is at
 `brains/configs/config-template.json`.  Ready-to-use configs are provided for each
 reservoir size in `brains/configs/`.
 
 ```json
 {
-  "name":       "Bob",
-  "brain_path": "brains/Bob-16k.npz",
-  "log_path":   "brains/logs/Bob-16k.log",
-  "res_size":   16384,
-  "device":     "cuda",
+  "name":         "Bob",
+  "brain_path":   "brains/Bob-16k.npz",
+  "log_path":     "brains/logs/Bob-16k.log",
+  "world_config": "rulesets/default.json",
+  "res_size":     16384,
+  "device":       "cuda",
   ...
 }
 ```
 
+The `world_config` field records which ruleset the brain was trained on.  In connected
+mode the game owns the rules (`--rules` flag) — this field is informational only.  In
+headless mode (`--headless N`) brain.py loads it automatically to configure the World.
+
 **Safe to change between runs** (even after a checkpoint exists):
 `explore_noise`, `eat_threshold`, `learn_lr`, `critic_lr`, `trace_decay`,
-`weight_decay`, `assess_every`, `log_capacity`, `name`, `brain_path`, `log_path`, `device`.
+`weight_decay`, `assess_every`, `log_capacity`, `name`, `brain_path`, `log_path`,
+`world_config`, `device`.
 
 **Do not change after a checkpoint exists** — these define the reservoir structure
 and changing them invalidates the saved W_out:
@@ -284,6 +297,44 @@ and changing them invalidates the saved W_out:
 | `seed` | 42 | Reservoir weight init seed |
 | `action_feedback` | false | Feed previous (fwd,turn,eat) back into reservoir input |
 | `device` | "cuda" | Compute device |
+
+---
+
+## Rulesets
+
+World parameters live in a separate JSON file, independent of any brain.  The
+annotated template is at `rulesets/ruleset_template.json`; `rulesets/default.json`
+contains the clean defaults ready to copy and edit.
+
+```bash
+# Run game with a custom ruleset
+python game.py --connect --rules rulesets/my-ruleset.json
+```
+
+All ruleset parameters are **safe to change at any time** — they do not affect the
+observation vector size or the brain checkpoint.  Changing them between runs with the
+same brain just changes the environment the brain is placed in.
+
+| Parameter | Default | Effect |
+| --------- | ------- | ------ |
+| `food_count` | 20 | Number of food items in the world |
+| `danger_count` | 10 | Number of danger zones |
+| `food_respawn_steps` | 300 | Steps before eaten food reappears (~5 s) |
+| `spawn_near_food` | true | Spawn AI adjacent to food (early eating signal) |
+| `entity_speed` | 3.0 | px/step at full forward input |
+| `entity_turn_speed` | 0.06 | rad/step at full turn (~3.4°) |
+| `vision_range` | 450.0 | Max ray-cast distance in pixels |
+| `satiation_drain_rate` | 0.0001 | Hunger speed (lower = longer before starvation) |
+| `valence_decay_neg` | 0.001 | Recovery rate from negative valence per step |
+| `valence_decay_pos` | 0.001 | Fade rate from positive valence per step |
+| `hunger_valence_drain` | 0.002 | Pain increase rate when starving |
+| `danger_life_delay_steps` | 180 | Contact steps before life starts draining (~3 s) |
+| `life_drain_rate` | 0.001 | Life lost per step once drain is active |
+| `food_pleasure` | 0.6 | Valence spike on eating |
+| `food_satiation_gain` | 0.35 | Satiation restored on eating |
+| `food_life_gain` | 0.15 | Life restored on eating |
+| `danger_vision_penalty` | 0.002 | Valence penalty per step for danger in forward cone |
+| `food_vision_reward` | 0.002 | Valence reward per step for food in forward cone |
 
 ---
 
@@ -368,8 +419,9 @@ python brains/plot_logs.py
 ```
 python game.py [options]
 
-  --connect      Enable the multi-agent ZeroMQ connector (required for brains)
-  --no-reset     Keep AIs alive at life=0/valence=-1 on death instead of respawning
+  --connect          Enable the multi-agent ZeroMQ connector (required for brains)
+  --no-reset         Keep AIs alive at life=0/valence=-1 on death instead of respawning
+  --rules PATH       Load world ruleset JSON (see rulesets/ruleset_template.json)
 ```
 
 ---
@@ -425,9 +477,13 @@ while True:
 Or headless, without ZeroMQ:
 
 ```python
+import json
 from env import World
 
-world = World(seed=42)
+with open("rulesets/default.json") as f:
+    cfg = json.load(f)
+
+world = World(seed=42, cfg=cfg)
 world.add_agent()                          # spawn one AI body
 obs = world.get_ai_observation()           # float32 (263,)
 world.step(ai_action=(1.0, 0.0, 0.0))     # single-agent shorthand

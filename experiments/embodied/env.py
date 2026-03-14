@@ -275,16 +275,47 @@ class World:
     life=0 with maximum pain (valence=−1) so it can learn to recover by eating.
     """
 
-    def __init__(self, seed: int = 42, no_reset_on_death: bool = False) -> None:
+    def __init__(self, seed: int = 42, no_reset_on_death: bool = False,
+                 cfg: Optional[dict] = None) -> None:
+        c = cfg or {}
         self._seed = seed
         self._rng  = np.random.default_rng(seed)
         self.paused: bool = False
         self.no_reset_on_death: bool = no_reset_on_death
 
-        self.foods   = self._spawn_foods(FOOD_COUNT)
-        self.dangers = self._spawn_dangers(DANGER_COUNT)
+        # ── Configurable world parameters (overridable via ruleset JSON) ───────
+        # World layout
+        self._food_count             = int(c.get("food_count",            FOOD_COUNT))
+        self._danger_count           = int(c.get("danger_count",          DANGER_COUNT))
+        self._food_respawn_steps     = int(c.get("food_respawn_steps",    FOOD_RESPAWN_STEPS))
+        self._spawn_near_food        = bool(c.get("spawn_near_food",      SPAWN_NEAR_FOOD))
+        # Entity movement
+        self._entity_speed           = float(c.get("entity_speed",        ENTITY_SPEED))
+        self._entity_turn_speed      = float(c.get("entity_turn_speed",   ENTITY_TURN_SPEED))
+        # Vision
+        self._vision_range           = float(c.get("vision_range",        VISION_RANGE))
+        # Meter dynamics
+        self._satiation_drain_rate   = float(c.get("satiation_drain_rate",   SATIATION_DRAIN_RATE))
+        self._valence_decay_neg      = float(c.get("valence_decay_neg",      VALENCE_DECAY_NEG))
+        self._valence_decay_pos      = float(c.get("valence_decay_pos",      VALENCE_DECAY_POS))
+        self._hunger_valence_drain   = float(c.get("hunger_valence_drain",   HUNGER_VALENCE_DRAIN))
+        self._danger_life_delay_steps= int(c.get("danger_life_delay_steps",  DANGER_LIFE_DELAY_STEPS))
+        self._life_drain_rate        = float(c.get("life_drain_rate",        LIFE_DRAIN_RATE))
+        # Rewards
+        self._food_pleasure          = float(c.get("food_pleasure",          FOOD_PLEASURE))
+        self._food_satiation_gain    = float(c.get("food_satiation_gain",    FOOD_SATIATION_GAIN))
+        self._food_life_gain         = float(c.get("food_life_gain",         FOOD_LIFE_GAIN))
+        self._other_entity_pleasure  = float(c.get("other_entity_pleasure",  OTHER_ENTITY_PLEASURE))
+        self._other_entity_touch_cap = float(c.get("other_entity_touch_cap", OTHER_ENTITY_TOUCH_CAP))
+        self._danger_vis_penalty     = float(c.get("danger_vision_penalty",  DANGER_VISION_PENALTY))
+        self._food_vis_reward        = float(c.get("food_vision_reward",     FOOD_VISION_REWARD))
+        # ──────────────────────────────────────────────────────────────────────
+
+        self.foods   = self._spawn_foods(self._food_count)
+        self.dangers = self._spawn_dangers(self._danger_count)
         self.agents: List[Entity] = []
         self.player = Entity(*_PLAYER_START)
+        self._configure_entity(self.player)
         self.player_active: bool = True
         self.step_count: int  = 0
         self.death_count: int = 0
@@ -378,10 +409,11 @@ class World:
 
     def reset(self, keep_counts: bool = False) -> None:
         counts = (self.step_count, self.death_count) if keep_counts else (0, 0)
-        self.foods   = self._spawn_foods(FOOD_COUNT)
-        self.dangers = self._spawn_dangers(DANGER_COUNT)
+        self.foods   = self._spawn_foods(self._food_count)
+        self.dangers = self._spawn_dangers(self._danger_count)
         self.agents  = []
         self.player  = Entity(*_PLAYER_START)
+        self._configure_entity(self.player)
         self.step_count  = counts[0] if keep_counts else 0
         self.death_count = counts[1] if keep_counts else 0
 
@@ -389,11 +421,12 @@ class World:
                   heading: Optional[float] = None) -> int:
         """Spawn a new AI entity and return its slot index in self.agents."""
         if x is None:
-            start = self._near_food_start() if SPAWN_NEAR_FOOD else _AI_START
+            start = self._near_food_start() if self._spawn_near_food else _AI_START
             sx, sy, sh = start
         else:
             sx, sy, sh = x, y, heading or 0.0
         entity = Entity(float(sx), float(sy), float(sh))
+        self._configure_entity(entity)
         # Reuse first empty slot to preserve slot→index mapping for live agents
         for i, a in enumerate(self.agents):
             if a is None:
@@ -409,8 +442,15 @@ class World:
 
     def _respawn_agent(self, slot: int) -> None:
         """Replace a dead agent with a fresh entity at a spawn position."""
-        start = self._near_food_start() if SPAWN_NEAR_FOOD else _AI_START
-        self.agents[slot] = Entity(*start)
+        start = self._near_food_start() if self._spawn_near_food else _AI_START
+        entity = Entity(*start)
+        self._configure_entity(entity)
+        self.agents[slot] = entity
+
+    def _configure_entity(self, entity: Entity) -> None:
+        """Apply world-config movement settings to a newly created entity."""
+        entity.speed      = self._entity_speed
+        entity.turn_speed = self._entity_turn_speed
 
     def get_observation(self, entity: Entity) -> np.ndarray:
         """263-dim observation vector, all values ∈ [0, 1]."""
@@ -449,7 +489,7 @@ class World:
         for i, angle in enumerate(angles):
             hit_type, dist = self._cast_ray(entity, angle, others)
             result[i, 0] = hit_type / (HIT_TYPES - 1)
-            result[i, 1] = (1.0 - dist / VISION_RANGE) if hit_type != HIT_NONE else 0.0
+            result[i, 1] = (1.0 - dist / self._vision_range) if hit_type != HIT_NONE else 0.0
         return result
 
     @staticmethod
@@ -474,7 +514,7 @@ class World:
         dx, dy    = float(np.cos(angle)), float(np.sin(angle))
         ox, oy    = entity.x, entity.y
         skip_dist = entity.radius
-        best_dist = VISION_RANGE
+        best_dist = self._vision_range
         best_type = HIT_NONE
 
         d = _ray_wall_dist(ox, oy, dx, dy, WORLD_W, WORLD_H)
@@ -511,10 +551,9 @@ class World:
             for side in (-1.0, 1.0)
         ]
 
-    @staticmethod
-    def _consume_food(food: Food) -> None:
+    def _consume_food(self, food: Food) -> None:
         food.active = False
-        food.respawn_timer = FOOD_RESPAWN_STEPS
+        food.respawn_timer = self._food_respawn_steps
 
     @staticmethod
     def _push_food(food: Food, ox: float, oy: float, min_dist: float) -> None:
@@ -622,11 +661,11 @@ class World:
                     continue
                 if in_player and self._in_eat_zone(agent, food):
                     food.active = False
-                    food.respawn_timer = FOOD_RESPAWN_STEPS
+                    food.respawn_timer = self._food_respawn_steps
                     m = agent.meters
-                    m.valence   = min(1.0, m.valence   + FOOD_PLEASURE)
-                    m.satiation = min(1.0, m.satiation + FOOD_SATIATION_GAIN)
-                    m.life      = min(1.0, m.life      + FOOD_LIFE_GAIN)
+                    m.valence   = min(1.0, m.valence   + self._food_pleasure)
+                    m.satiation = min(1.0, m.satiation + self._food_satiation_gain)
+                    m.life      = min(1.0, m.life      + self._food_life_gain)
                     return
 
     # ── Tactile sensing ───────────────────────────────────────────────────────
@@ -729,13 +768,13 @@ class World:
             dx = danger.x - entity.x
             dy = danger.y - entity.y
             dist = float(np.hypot(dx, dy))
-            if dist >= VISION_RANGE:
+            if dist >= self._vision_range:
                 continue
             angle = float(np.arctan2(dy, dx))
             diff = abs((angle - entity.heading + np.pi) % (2.0 * np.pi) - np.pi)
             if diff <= VISION_HALF_ANGLE:
-                max_prox = max(max_prox, 1.0 - dist / VISION_RANGE)
-        return -DANGER_VISION_PENALTY * max_prox
+                max_prox = max(max_prox, 1.0 - dist / self._vision_range)
+        return -self._danger_vis_penalty * max_prox
 
     def _food_vision_reward(self, entity: Entity) -> float:
         """
@@ -750,13 +789,13 @@ class World:
             dx = food.x - entity.x
             dy = food.y - entity.y
             dist = float(np.hypot(dx, dy))
-            if dist >= VISION_RANGE:
+            if dist >= self._vision_range:
                 continue
             angle = float(np.arctan2(dy, dx))
             diff = abs((angle - entity.heading + np.pi) % (2.0 * np.pi) - np.pi)
             if diff <= VISION_HALF_ANGLE:
-                max_prox = max(max_prox, 1.0 - dist / VISION_RANGE)
-        return FOOD_VISION_REWARD * max_prox
+                max_prox = max(max_prox, 1.0 - dist / self._vision_range)
+        return self._food_vis_reward * max_prox
 
     # ── Entity update ─────────────────────────────────────────────────────────
 
@@ -764,21 +803,21 @@ class World:
         m        = entity.meters
         in_danger = entity.tactile.has_danger()
         draining = (
-            (in_danger and entity.danger_contact_steps >= DANGER_LIFE_DELAY_STEPS)
+            (in_danger and entity.danger_contact_steps >= self._danger_life_delay_steps)
             or (m.satiation <= -1.0 and m.valence <= -0.5)
         )
         if draining:
-            m.life    = max(0.0, m.life - LIFE_DRAIN_RATE)
+            m.life    = max(0.0, m.life - self._life_drain_rate)
             m.valence = -(0.5 + 0.5 * (1.0 - m.life))
         elif in_danger:
             m.valence = min(m.valence, -0.5)
         elif m.satiation <= -1.0:
-            net = HUNGER_VALENCE_DRAIN - VALENCE_DECAY_NEG
+            net = self._hunger_valence_drain - self._valence_decay_neg
             m.valence = float(np.clip(m.valence - net, -1.0, 1.0))
         elif m.valence > 0.0:
-            m.valence = max(0.0, m.valence - VALENCE_DECAY_POS)
+            m.valence = max(0.0, m.valence - self._valence_decay_pos)
         elif m.valence < 0.0:
-            m.valence = min(0.0, m.valence + VALENCE_DECAY_NEG)
+            m.valence = min(0.0, m.valence + self._valence_decay_neg)
         if m.life <= 0.0:
             entity.alive = False
 
@@ -792,14 +831,14 @@ class World:
             entity.danger_contact_steps + 1 if entity.tactile.has_danger() else 0
         )
 
-        m.satiation = max(-1.0, m.satiation - SATIATION_DRAIN_RATE)
+        m.satiation = max(-1.0, m.satiation - self._satiation_drain_rate)
 
         if ate_food:
-            m.valence   = min(1.0, m.valence   + FOOD_PLEASURE)
-            m.satiation = min(1.0, m.satiation + FOOD_SATIATION_GAIN)
-            m.life      = min(1.0, m.life      + FOOD_LIFE_GAIN)
-        if entity.tactile.has_other() and m.valence < OTHER_ENTITY_TOUCH_CAP:
-            m.valence = min(OTHER_ENTITY_TOUCH_CAP, m.valence + OTHER_ENTITY_PLEASURE)
+            m.valence   = min(1.0, m.valence   + self._food_pleasure)
+            m.satiation = min(1.0, m.satiation + self._food_satiation_gain)
+            m.life      = min(1.0, m.life      + self._food_life_gain)
+        if entity.tactile.has_other() and m.valence < self._other_entity_touch_cap:
+            m.valence = min(self._other_entity_touch_cap, m.valence + self._other_entity_pleasure)
 
         self._step_valence_and_life(entity)
 

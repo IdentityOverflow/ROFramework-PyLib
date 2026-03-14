@@ -133,6 +133,8 @@ DEFAULT_CONFIG: dict = {
     "name":            "",       # display name in HUD + monitor; empty = use slot #N
     "brain_path":      "",       # save + auto-load path (.npz); empty = no persistence
     "log_path":        "",       # CSV training log path; empty = no log
+    "world_config":    "",       # ruleset JSON this brain was trained on (informational;
+                                 # used in headless mode to configure the World)
     # Reservoir
     "res_size":        RESERVOIR_SIZE,
     "spectral_radius": SPECTRAL_RADIUS,
@@ -597,12 +599,20 @@ def run_connected(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
         client.close()
 
 
+def _load_world_config(path: str) -> dict:
+    """Load a world ruleset JSON, stripping _comment_* keys."""
+    with open(path) as f:
+        raw = json.load(f)
+    return {k: v for k, v in raw.items() if not k.startswith("_")}
+
+
 def run_headless(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
     if _here not in sys.path:
         sys.path.insert(0, _here)
     from env import World  # noqa: PLC0415
 
-    world      = World(seed=args.seed, no_reset_on_death=args.no_reset)
+    world_cfg  = _load_world_config(args._world_config) if getattr(args, "_world_config", None) else {}
+    world      = World(seed=getattr(args, "seed", 42), no_reset_on_death=args.no_reset, cfg=world_cfg)
     world.add_agent()   # headless mode bypasses registration; spawn slot 0 directly
     csv_writer = _open_log(args.log_path) if args.log_path else None
     n_steps    = args.headless
@@ -779,7 +789,8 @@ examples:
     if brain_path:
         save_config(cfg, _config_path(brain_path))
 
-    args._brain_name = cfg.get("name") or ""
+    args._brain_name   = cfg.get("name") or ""
+    args._world_config = cfg.get("world_config") or None
 
     if args.headless:
         print(f"\nRunning {args.headless} headless steps…")

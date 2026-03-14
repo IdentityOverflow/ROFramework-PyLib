@@ -1,57 +1,41 @@
 {
   "_doc": "Brain configuration. Copy, rename, and edit. Paths are relative to where brain.py is run (experiments/embodied/).",
-
   "_comment_name": "Display name shown in game HUD and monitor. Use something short and unique.",
   "name": "my-brain",
-
   "_comment_brain_path": "Save and load path for weights (.npz). On startup, loaded automatically if the file already exists. Use empty string to run without saving.",
   "brain_path": "brains/my-brain.npz",
-
   "_comment_log_path": "Append-mode CSV training log. Empty string = no log.",
   "log_path": "brains/logs/my-brain.log",
-
+  "world_config": "rulesets/default.json",
+  "_comment_world_config": "Ruleset this brain was trained on. Used in headless mode; informational in connected mode.",
   "_comment_res_size": "Reservoir neuron count. Larger = more capacity but slower. Presets: 256 (CPU toy), 729, 2187, 4096 (default), 8192, 16384 (RTX 4090).",
   "res_size": 4096,
-
   "_comment_spectral_radius": "Largest eigenvalue of the recurrent weight matrix. <1 = echo state (stable fading memory), >1 = chaotic. Keep close to 1.",
   "spectral_radius": 0.99,
-
-  "_comment_noise_scale": "Internal reservoir noise injected at each step. Acts as a regulariser and prevents fixed-point attractors. Typical: 10–100.",
+  "_comment_noise_scale": "Internal reservoir noise injected at each step. Acts as a regulariser and prevents fixed-point attractors. Typical: 10\u2013100.",
   "noise_scale": 90.0,
-
   "_comment_alpha": "Leaky-integrator rate [0,1]. 1.0 = no leakage (full state update each step). Lower values give slower, smoother dynamics.",
   "alpha": 1.0,
-
   "_comment_explore_noise": "Gaussian noise added to the fwd and turn action outputs before tanh. Drives exploration. Set to 0 for pure exploitation (inference).",
   "explore_noise": 90.0,
-
   "_comment_eat_threshold": "Raw eat-output value above which the eat action fires. 0.0 = eat whenever the output is positive.",
   "eat_threshold": 0.0,
-
-  "_comment_learn_lr": "Actor learning rate — scales the RPE-weighted eligibility trace update to W_out.",
+  "_comment_learn_lr": "Actor learning rate \u2014 scales the RPE-weighted eligibility trace update to W_out.",
   "learn_lr": 0.0001,
-
-  "_comment_critic_lr": "Critic learning rate — how fast valence_pred tracks the running reward signal.",
+  "_comment_critic_lr": "Critic learning rate \u2014 how fast valence_pred tracks the running reward signal.",
   "critic_lr": 0.001,
-
-  "_comment_trace_decay": "Eligibility trace decay per step. 0.99 ≈ 1.7-second memory at 60 fps. Lower = shorter credit-assignment horizon.",
+  "_comment_trace_decay": "Eligibility trace decay per step. 0.99 \u2248 1.7-second memory at 60 fps. Lower = shorter credit-assignment horizon.",
   "trace_decay": 0.99,
-
   "_comment_weight_decay": "L2 regularisation on W_out applied every step. Prevents unbounded weight growth. Typical: 1e-5 to 1e-4.",
-  "weight_decay": 1e-5,
-
+  "weight_decay": 1e-05,
   "_comment_assess_every": "How often (in steps) the KnowledgeTracker runs K(d_ext) assessment. Logged alongside the reward summary.",
   "assess_every": 300,
-
-  "_comment_log_capacity": "Rolling window size for the observation log used by the KnowledgeTracker. 5000 ≈ 83 seconds at 60 fps.",
+  "_comment_log_capacity": "Rolling window size for the observation log used by the KnowledgeTracker. 5000 \u2248 83 seconds at 60 fps.",
   "log_capacity": 5000,
-
   "_comment_seed": "Random seed for reservoir weight initialisation. Different seeds give different fixed reservoirs.",
   "seed": 42,
-
   "_comment_action_feedback": "If true, feed the previous (fwd, turn, eat) triple back into the reservoir input each step (input_dim += 3).",
   "action_feedback": false,
-
   "_comment_device": "Compute device: 'cuda' or 'cpu'. Overridable at runtime with --device.",
   "device": "cuda"
 }

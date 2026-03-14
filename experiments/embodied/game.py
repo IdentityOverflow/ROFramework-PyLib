@@ -557,10 +557,23 @@ def _draw_pause_overlay(screen: pygame.Surface) -> None:
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
 
+def _load_ruleset(path: str) -> dict:
+    import json as _json
+    with open(path) as f:
+        raw = _json.load(f)
+    return {k: v for k, v in raw.items() if not k.startswith("_")}
+
+
 def main() -> None:
     import sys as _sys
     use_connector = "--connect" in _sys.argv
     no_reset      = "--no-reset" in _sys.argv
+    rules_path    = None
+    for i, arg in enumerate(_sys.argv[:-1]):
+        if arg == "--rules":
+            rules_path = _sys.argv[i + 1]
+            break
+    world_cfg = _load_ruleset(rules_path) if rules_path else {}
 
     conn = None
     if use_connector:
@@ -574,7 +587,7 @@ def main() -> None:
     clock    = pygame.time.Clock()
     font_s   = pygame.font.SysFont("monospace", 11)
     font_m   = pygame.font.SysFont("monospace", 13, bold=True)
-    world    = World(seed=42, no_reset_on_death=no_reset)
+    world    = World(seed=42, no_reset_on_death=no_reset, cfg=world_cfg)
     ray_surf = pygame.Surface((WORLD_W, WORLD_H), pygame.SRCALPHA)
 
     paused               = False
