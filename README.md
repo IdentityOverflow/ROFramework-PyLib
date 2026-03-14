@@ -212,39 +212,30 @@ Every `observe()` call records an `ObservationPair(external_state, internal_stat
 
 ### Embodied Environment
 
-A 2D pygame environment where an AI entity navigates a world alongside a human-controlled player. The AI has:
+A 2D pygame environment where one or more AI agents navigate a world alongside a human-controlled player. Each AI has:
 
 - **121 vision rays** (distance + object type per ray)
 - **16 directional body tactile receptors** (signal strength encodes object type without labels)
 - **2 prong sensors** for fine manipulation
 - **Internal meters**: life, satiation, valence (the intrinsic reward signal)
 
-The environment connects to any external process over ZeroMQ — the game publishes one observation packet per step (~60 fps) and consumes actions non-blocking. See [experiments/embodied/INTEGRATION.md](experiments/embodied/INTEGRATION.md) for the full wire protocol.
+The environment supports **multiple simultaneous agents** over ZeroMQ — each brain process registers, receives a slot and a dedicated port pair, and runs independently. The game publishes one observation packet per agent per step (~60 fps) and consumes actions non-blocking.
 
 ```bash
-# Terminal 1 — start the game
+# Terminal 1 — game window
 cd experiments/embodied
 python game.py --connect
 
-# Terminal 2 — connect your agent
-from connector import AgentConnector
-client = AgentConnector()
-client.connect()
-obs, reward, done, step = client.recv_obs()
-client.send_action((1.0, 0.0, 0.0))  # (fwd, turn, eat)
+# Terminal 2 — ESN brain (config drives all hyperparams, paths, and name)
+python brain.py --config brains/configs/bob-16k.json
 
-# Terminal 2 (alternative) — sensory monitor
+# Terminal 3 — read-only sensory monitor
 python monitor.py
 ```
 
-For headless training, instantiate `World` directly (no display required):
+The included `brain.py` is a single-reservoir ESN with RO Framework integration: 263-dim observations drive a frozen random reservoir; only the readout `W_out` is trained via RPE-gated eligibility traces. Brain name is shown in the game window (above the entity's head) and in the monitor. If `brain_path` in the config already exists, the checkpoint is loaded automatically.
 
-```python
-from env import World
-world = World(seed=42)
-obs = world.get_ai_observation()   # float32 (263,)
-world.step(ai_action=(1.0, 0.0, 0.0))
-```
+For custom agents or headless training, use `AgentConnector` directly or instantiate `World` without a display. See [experiments/embodied/INTEGRATION.md](experiments/embodied/INTEGRATION.md) for the full wire protocol and [experiments/embodied/README.md](experiments/embodied/README.md) for the brain config reference.
 
 ### Reservoir Computing Research
 
@@ -311,7 +302,22 @@ Apply the framework to reservoir computing — the most structurally natural sub
 - RC-3: K-guided readout training — retry Phase 8c where feature-behavioral lag shouldn't exist
 - RC-4: Multi-reservoir knowledge assessment — first multi-observer experiment
 - RC-5: Reservoir self-model — structural consciousness via self-observing reservoir
-- RC-6: Toward OCA — full multi-reservoir architecture
+- RC-6: Toward OCA — full multi-reservoir architecture with RPE-gated plasticity
+
+### Pretrained Reservoir Research (Direction D)
+
+Use frozen weight matrices from pretrained models as the reservoir core instead of random initialisation. The hypothesis: pretrained weights already encode rich structure (causality, sequence dynamics, multimodal patterns) that produces a qualitatively better echo space — without training any recurrent weights.
+
+Prior art: Frozen Pretrained Transformers (FPT, 2021) showed frozen GPT-2 with only input/output layers trained could solve RL tasks it was never trained on. Reservoir Transformers explored transformer layers as fixed dynamical systems. The surprising finding: random reservoirs sometimes matched pretrained ones, suggesting the *architecture* (not the learned weights) does much of the work.
+
+Primary target: **LFM-2** (Liquid AI) — multimodal tiny vision variants grounded in dynamical systems theory, making them a natural fit as reservoir substrates. The key experiment is a direct comparison: same readout training, same embodied navigation task, random reservoir vs pretrained reservoir — K(d_ext) trajectories will reveal objectively whether the pretrained echo space is richer.
+
+- D-1: Extract and freeze weight matrices from a small pretrained model (e.g. LFM-2 tiny vision)
+- D-2: Project embodied observations into the model's input space; train readout only
+- D-3: Compare K(d_ext) trajectories: random vs pretrained reservoir with identical readout training
+- D-4: Spectral analysis of pretrained W_res — are eigenmodes structured vs random?
+- D-5: Mixed reservoir — pretrained core + random expansion layers
+- D-6: Cross-domain transfer — which pretrained domains (language / vision / multimodal) produce the richest echo space for navigation?
 
 ### Research directions
 

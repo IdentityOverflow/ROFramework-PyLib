@@ -275,5 +275,33 @@ See `docs/research/reservoir.md` for full rationale and roadmap. Experiments in 
 - [ ] RC-5: Reservoir self-model — structural consciousness via reservoir observing itself
 - [ ] RC-6: Toward OCA — full multi-reservoir architecture with RPE-gated plasticity
 
+### Pretrained Reservoir Research (Direction D)
+
+Use frozen weight matrices from pretrained models as the reservoir core instead of random
+initialisation. The hypothesis: pretrained weights already encode rich structure (causality,
+patterns, sequence dynamics) that could produce a qualitatively better echo space than a
+random matrix — without any training of the recurrent weights.
+
+Prior art: Frozen Pretrained Transformers (FPT, 2021) showed frozen GPT-2 with only
+input/output layers trained could solve RL tasks it was never trained on. Reservoir
+Transformers explored transformer layers as fixed dynamical systems. Strikingly, random
+reservoirs sometimes matched pretrained ones, suggesting the architecture itself (not the
+learned weights) does much of the work.
+
+Open question for the embodied experiment: does a language/vision model's internal dynamics
+produce a richer echo space for navigation than a random matrix? Does structure learned in
+one domain (language, vision) transfer to a completely unrelated embodied domain via
+reservoir dynamics alone?
+
+Preferred model family: **LFM-2** (Liquid AI) — multimodal, tiny vision variants, designed
+with dynamic systems principles that may be especially well-suited as reservoir substrates.
+
+- [ ] D-1: Extract and freeze weight matrices from a small pretrained model (e.g. LFM-2 tiny vision)
+- [ ] D-2: Project embodied observations into the model's input space; train readout only
+- [ ] D-3: Compare K(d_ext) trajectories: random reservoir vs pretrained reservoir — same readout training
+- [ ] D-4: Spectral analysis of pretrained W_res — are eigenmodes structured vs random?
+- [ ] D-5: Mixed reservoir — pretrained core + random expansion layers
+- [ ] D-6: Cross-domain transfer analysis — which pretrained domains (language / vision / multimodal) produce the richest echo space for navigation?
+
 ## Current Status
 **v0.2.1-dev** — Phase 9 complete (331/331 tests passing). SAE integration validated on GPT-2 with multi-feature assessment. Next: RC-1 (reservoir computing experiments), then Phase 10.
