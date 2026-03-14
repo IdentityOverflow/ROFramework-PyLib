@@ -383,6 +383,7 @@ def draw_hud(
     world: World,
     font_s: pygame.font.Font,
     font_m: pygame.font.Font,
+    slot_names: dict | None = None,
 ) -> None:
     top = WORLD_H
     pygame.draw.rect(surf, C_HUD_BG, (0, top, SCREEN_W, HUD_HEIGHT))
@@ -430,7 +431,9 @@ def draw_hud(
     else:
         for row, (i, agent) in enumerate(active):
             color, _ = _AI_PALETTES[i % len(_AI_PALETTES)]
-            line = (f"AI #{i}  L:{agent.meters.life:.2f}  "
+            label = slot_names.get(i) if slot_names else None
+            label = label or f"#{i}"
+            line = (f"{label}  L:{agent.meters.life:.2f}  "
                     f"V:{agent.meters.valence:+.2f}  "
                     f"S:{agent.meters.satiation:+.2f}")
             ay = sy + 18 + len(lines) * 15 + row * 13
@@ -492,6 +495,7 @@ def _draw_world(
     ray_surf: pygame.Surface,
     world: World,
     font_s: pygame.font.Font,
+    slot_names: dict | None = None,
 ) -> None:
     screen.fill(C_BG)
     pygame.draw.rect(screen, C_BORDER, (0, 0, WORLD_W, WORLD_H), 2)
@@ -518,7 +522,8 @@ def _draw_world(
         color, ring = _AI_PALETTES[i % len(_AI_PALETTES)]
         draw_entity(screen, agent, color, ring)
         if n_active > 1:
-            lbl = font_s.render(f"#{i}", True, ring)
+            name = slot_names.get(i, f"#{i}") if slot_names else f"#{i}"
+            lbl = font_s.render(name, True, ring)
             screen.blit(lbl, (int(agent.x) - lbl.get_width() // 2,
                                int(agent.y) - int(agent.radius) - 13))
 
@@ -622,11 +627,12 @@ def main() -> None:
         if player_died:
             death_flash = 45
 
-        _draw_world(screen, ray_surf, world, font_s)
+        names = {sid: conn.slot_name(sid) for sid in conn._slots} if conn else None
+        _draw_world(screen, ray_surf, world, font_s, slot_names=names)
         death_flash = _draw_death_flash(screen, death_flash)
         if paused:
             _draw_pause_overlay(screen)
-        draw_hud(screen, world, font_s, font_m)
+        draw_hud(screen, world, font_s, font_m, slot_names=names)
 
         pygame.display.flip()
         clock.tick(FPS)

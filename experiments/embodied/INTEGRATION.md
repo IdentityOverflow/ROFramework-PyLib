@@ -41,11 +41,11 @@ python game.py --connect
 The terminal will print the ports once the sockets are bound:
 
 ```
-[connector] multi-agent connector ready  reg=5556  monitor=5555
+[connector] registration port 5556  monitor port 5555  (obs base: 5557, act base: 5558)
 ```
 
-The game window opens normally.  Without `--connect`, behaviour is identical to
-before — no ZeroMQ overhead.
+The game window opens normally.  Without `--connect`, behaviour is identical —
+no ZeroMQ overhead.
 
 ---
 
@@ -56,14 +56,13 @@ automatically:
 
 ```python
 from connector import AgentConnector
-import numpy as np
 
-client = AgentConnector()   # defaults: host=127.0.0.1, reg_port=5556
-client.connect()            # registers, receives slot ID, opens obs/act sockets
+client = AgentConnector()             # defaults: host=127.0.0.1
+client.connect(name="my-agent")       # registers, receives slot ID, opens obs/act sockets
 
 print(f"registered as slot {client.slot_id}")   # 0, 1, 2, ...
 
-obs, reward, done = client.recv_obs()   # wait for first frame
+obs, reward, done, step = client.recv_obs()   # wait for first frame
 
 while True:
     # --- your agent logic here ---
@@ -72,7 +71,7 @@ while True:
     eat  =  0.0   # ∈  {0, 1}  attempt to eat/grab food
 
     client.send_action((fwd, turn, eat))
-    obs, reward, done = client.recv_obs()   # blocks until next frame
+    obs, reward, done, step = client.recv_obs()   # blocks until next frame
 
 client.close()
 ```
@@ -80,26 +79,29 @@ client.close()
 Multiple agents simply connect in separate processes — each receives its own slot and
 its own obs/act port pair.  There is no coordination required between agent processes.
 
+The `name` argument is optional.  If provided, it is shown above the body in the game
+window, in the HUD status lines, and in the monitor panel headers.
+
 ---
 
 ## Registration protocol
 
 When `client.connect()` is called, a single REQ/REP exchange happens:
 
-**REQ → game** (1 byte):  `b"\x01"`  (register request)
+**REQ → game** — UTF-8 bytes of the brain name (up to 63 bytes).  If no name is
+provided, `b"R"` is sent (legacy single-byte sentinel, treated as unnamed).
 
-**REP ← game** (2 bytes):
+**REP ← game** (5 bytes, little-endian):
 
 ```
-offset  size  type   field
-0       1     uint8  slot_id   (0, 1, 2, ...)
-1       1     uint8  reserved  (always 0)
+offset  size  type    field
+0       1     uint8   slot_id    (0, 1, 2, ...)
+1       2     uint16  obs_port   (5557 + 2 * slot_id)
+3       2     uint16  act_port   (5558 + 2 * slot_id)
 ```
 
-The slot ID determines which port pair to use:
-
-- obs port: `5557 + 2 * slot_id`
-- act port: `5558 + 2 * slot_id`
+The slot ID determines which port pair to use.  It is recycled from disconnected
+brains when possible, so a reconnecting brain gets the same slot and same colour.
 
 ---
 
@@ -107,7 +109,7 @@ The slot ID determines which port pair to use:
 
 If an agent process exits or stops sending/receiving for ~3 seconds (180 steps at
 60 fps), the game detects the timeout and **automatically despawns** that agent's body.
-The slot ID is freed and will be reused for the next agent that registers.
+The slot ID is freed and reused for the next brain that registers.
 
 No explicit deregistration message is needed — simply closing the process is enough.
 
@@ -125,13 +127,46 @@ mon = MonitorConnector()   # host=127.0.0.1, port=5555
 mon.connect()
 
 while True:
-    packets = mon.recv_all()   # list of dicts, one per active agent
-    for p in packets:
-        print(p["slot_id"], p["obs"], p["reward"], p["done"])
+    step, agents = mon.recv()   # list of dicts, one per active agent
+    for agent in agents:
+        print(agent["name"], agent["reward"], agent["obs"][260:263])
 ```
+
+Each agent dict contains:
+
+| Key | Type | Content |
+|-----|------|---------|
+| `"name"` | str | Brain name from config, or `"#N"` if unnamed |
+| `"reward"` | float | Raw valence ∈ [-1, 1] |
+| `"obs"` | ndarray (263,) float32 | Full observation vector |
 
 The monitor client is read-only and does not affect the simulation.  The included
 `monitor.py` script renders a live Rich dashboard using this stream.
+
+---
+
+## Monitor broadcast wire format
+
+Each frame published on port 5555:
+
+**Header** (5 bytes):
+
+```
+offset  size  type    field
+0       1     uint8   n_agents
+1       4     int32   step_count
+```
+
+**Per-agent block** (repeated `n_agents` times):
+
+```
+offset  size  type          field
+0       32    bytes         name  (UTF-8, null-padded to 32 bytes)
+32      4     float32       reward  (valence ∈ [-1, 1])
+36      1052  float32[263]  obs
+```
+
+Total per-agent block: 1088 bytes.
 
 ---
 
@@ -144,7 +179,7 @@ The monitor client is read-only and does not affect the simulation.  The include
 | `[258:260]` | 2 | Prong tactile receptors `[left_prong, right_prong]` |
 | `[260:263]` | 3 | Internal meters `[life, satiation_norm, valence_norm]` |
 
-All values are `∈ [0, 1]`.
+All values are ∈ [0, 1].
 
 ### Vision encoding (per ray)
 
@@ -181,7 +216,7 @@ behind.  Prong receptors fire when objects are within or near the prong triangle
 
 ## Reward signal
 
-`reward` is the raw **valence** value `∈ [-1, 1]` (not normalised):
+`reward` is the raw **valence** value ∈ [-1, 1] (not normalised):
 
 - `+0.6` spike on eating food
 - `+0.1` spike on receiving a pat from the player
@@ -201,7 +236,7 @@ its hidden state (RNN, ESN, etc.) when `done` is True.
 
 ---
 
-## Wire protocol
+## OBS/ACT packet wire format
 
 All values are little-endian.
 
@@ -209,7 +244,7 @@ All values are little-endian.
 
 ```
 offset  size  type          field
-0       4     int32         step_count  (game steps since last reset)
+0       4     int32         step_count  (game steps since start)
 4       1     uint8         done        (1 = world just reset)
 5       4     float32       reward      (valence ∈ [-1, 1])
 9       1052  float32[263]  obs
@@ -226,27 +261,31 @@ offset  size  type     field
 
 ---
 
-## Using your own render loop (headless)
+## Headless (no display)
 
-If you want to run without a display — for training — instantiate `World`
-directly and skip `game.py` entirely:
+Instantiate `World` directly and skip `game.py` entirely:
 
 ```python
 from env import World
 
 world = World(seed=42)
-world.add_agent()           # spawns the first AI entity
+world.add_agent()                          # spawn one AI body
 
-obs    = world.get_observation(slot=0)   # (263,) float32
-reward = world.agents[0].meters.valence
-done   = not world.agents[0].alive       # normally False right after reset
+obs    = world.get_ai_observation()        # float32 (263,)
+reward = float(world.ai.meters.valence)    # ∈ [-1, 1]
+done   = not world.ai.alive               # normally False right after reset
 
-action = (1.0, 0.0, 0.0)               # your agent's output
-world.step(ai_actions=[(0, action)])    # list of (slot, action) tuples
+action = (1.0, 0.0, 0.0)                  # fwd, turn, eat
+world.step(ai_action=action)              # advances one step; auto-resets on death
 ```
 
-The `World.step()` call auto-resets when life reaches 0; there is no separate
-`reset()` you need to call.
+For multiple agents use `ai_actions` (list indexed by slot):
+
+```python
+world.add_agent()   # slot 0
+world.add_agent()   # slot 1
+world.step(ai_actions=[(1.0, 0.0, 0.0), (0.0, 1.0, 0.0)])
+```
 
 ---
 
@@ -254,15 +293,15 @@ The `World.step()` call auto-resets when life reaches 0; there is no separate
 
 | Port | Direction | Socket type | Purpose |
 |------|-----------|-------------|---------|
-| 5555 | game → all | PUB / SUB | Monitor broadcast (all agents) |
-| 5556 | agent → game | REQ / REP | Registration |
+| 5555 | game → all | PUB / SUB | Monitor broadcast (all agents, every step) |
+| 5556 | agent → game | REQ / REP | Registration — brain sends name, game responds with slot+ports |
 | 5557 + 2N | game → agent N | PUSH / PULL | Observations for slot N |
-| 5558 + 2N | agent N → game | PULL / PUSH | Actions from slot N |
+| 5558 + 2N | agent N → game | PUSH / PULL | Actions from slot N |
 
 Override base ports via constructor arguments:
 
 ```python
-conn   = MultiGameConnector(host="0.0.0.0", base_obs_port=6000, base_act_port=6001,
-                             reg_port=5900, monitor_port=5899)
-client = AgentConnector(host="192.168.1.10", reg_port=5900)
+conn   = MultiGameConnector(host="0.0.0.0", register_port=5900, monitor_port=5899)
+client = AgentConnector(host="192.168.1.10")
+client.connect(name="remote-brain", register_port=5900)
 ```

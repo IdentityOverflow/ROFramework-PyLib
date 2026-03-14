@@ -78,8 +78,9 @@ _REG_RESP_FMT    = "<BHH"  # slot_id (uint8), obs_port (uint16), act_port (uint1
 # ── Wire format ───────────────────────────────────────────────────────────────
 _OBS_HEADER_FMT  = "<iB"                      # step(int32), done(uint8)
 _OBS_HEADER_SIZE = struct.calcsize(_OBS_HEADER_FMT)   # 5 bytes
-# Monitor broadcast: n_agents(1) | step(4) | per-agent: reward(4) | obs(OBS_SIZE*4)
+# Monitor broadcast: n_agents(1B) | step(4B) | per-agent: name(32B) | reward(4B) | obs(OBS_SIZE*4B)
 _MON_HEADER_FMT  = "<Bi"   # n_agents (uint8), step (int32)
+_MON_NAME_LEN    = 32      # fixed-width UTF-8 name field per agent, null-padded
 _ACT_FMT         = "<fff"                     # fwd, turn, eat  (float32 × 3)
 _ACT_SIZE        = struct.calcsize(_ACT_FMT)  # 12 bytes
 
@@ -253,9 +254,12 @@ class MultiGameConnector:
         new_slots: List[int] = []
         while True:
             try:
-                self._reg_sock.recv(zmq.NOBLOCK)   # message content ignored
+                msg = self._reg_sock.recv(zmq.NOBLOCK)
             except zmq.Again:
                 break
+            # Decode brain name (empty / legacy b"R" → unnamed)
+            name = msg.decode("utf-8", errors="replace").strip("\x00") if msg != b"R" else ""
+
             # Reuse the lowest freed slot ID so world.agents index stays aligned
             if self._free_slots:
                 self._free_slots.sort()
@@ -277,13 +281,15 @@ class MultiGameConnector:
             act_sock.bind(f"tcp://{self._host}:{act_port}")
 
             self._slots[slot_id] = {
-                "obs_sock":      obs_sock,
-                "act_sock":      act_sock,
-                "last_action":   _DEFAULT_ACTION,
-                "last_recv_step": current_step,   # grace period from registration
+                "obs_sock":       obs_sock,
+                "act_sock":       act_sock,
+                "last_action":    _DEFAULT_ACTION,
+                "last_recv_step": current_step,
+                "name":           name,
             }
             new_slots.append(slot_id)
-            print(f"[connector] brain registered: slot {slot_id} "
+            display = f'"{name}"' if name else f"#{slot_id}"
+            print(f"[connector] brain registered: {display} → slot {slot_id} "
                   f"(obs:{obs_port}  act:{act_port})")
         return new_slots
 
@@ -347,17 +353,23 @@ class MultiGameConnector:
         """Publish all agents' obs on the monitor PUB socket."""
         if self._mon_sock is None or not world.agents:
             return
-        active = [a for a in world.agents if a is not None]
-        n = len(active)
-        data = struct.pack(_MON_HEADER_FMT, n, world.step_count)
-        for agent in active:
+        active = [(i, a) for i, a in enumerate(world.agents) if a is not None]
+        data = struct.pack(_MON_HEADER_FMT, len(active), world.step_count)
+        for slot_id, agent in active:
+            name_bytes = self.slot_name(slot_id).encode("utf-8", errors="replace")
+            name_bytes = name_bytes[:_MON_NAME_LEN].ljust(_MON_NAME_LEN, b"\x00")
             reward = float(agent.meters.valence)
             obs    = world.get_observation(agent)
-            data  += struct.pack("<f", reward) + obs.tobytes()
+            data  += name_bytes + struct.pack("<f", reward) + obs.tobytes()
         try:
             self._mon_sock.send(data, zmq.NOBLOCK)
         except zmq.Again:
             pass
+
+    def slot_name(self, slot_id: int) -> str:
+        """Return the display name for slot_id, falling back to '#N'."""
+        name = self._slots.get(slot_id, {}).get("name", "")
+        return name if name else f"#{slot_id}"
 
     @property
     def n_slots(self) -> int:
@@ -418,6 +430,7 @@ class AgentConnector:
         self,
         host: str | None = None,
         register_port: int = REGISTER_PORT,
+        name: str = "",
     ) -> None:
         """
         Connect to the running game.
@@ -437,7 +450,7 @@ class AgentConnector:
         reg_sock.setsockopt(zmq.RCVTIMEO, 500)
         reg_sock.connect(f"tcp://{host}:{register_port}")
         try:
-            reg_sock.send(b"R")
+            reg_sock.send(name.encode("utf-8", errors="replace")[:63] if name else b"R")
             data = reg_sock.recv()
             self._slot_id, obs_port, act_port = struct.unpack(_REG_RESP_FMT, data)
             print(f"[brain] registered as slot {self._slot_id} "
@@ -569,12 +582,14 @@ class MonitorConnector:
         n_agents, step = struct.unpack_from(_MON_HEADER_FMT, data, 0)
         off    = struct.calcsize(_MON_HEADER_FMT)
         agents = []
-        for _ in range(n_agents):
+        for i in range(n_agents):
+            name   = data[off:off + _MON_NAME_LEN].rstrip(b"\x00").decode("utf-8", errors="replace")
+            off   += _MON_NAME_LEN
             reward = struct.unpack_from("<f", data, off)[0]
             off   += 4
             obs    = np.frombuffer(data[off: off + OBS_SIZE * 4], dtype=np.float32).copy()
             off   += OBS_SIZE * 4
-            agents.append({"reward": float(reward), "obs": obs})
+            agents.append({"name": name or f"#{i}", "reward": float(reward), "obs": obs})
         return int(step), agents
 
     def close(self) -> None:

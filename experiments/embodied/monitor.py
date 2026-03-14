@@ -184,7 +184,7 @@ def _build_display(
     for i, agent in enumerate(agents):
         obs    = agent["obs"]
         reward = agent["reward"]
-        title  = f"[bold cyan]AI #{i}[/]"
+        title  = f"[bold cyan]{agent['name']}[/]"
         if n > 1:
             title += f"[grey50]  ({n} agents total)[/]" if i == detail_slot else ""
 
