@@ -17,6 +17,8 @@ ZeroMQ — no game code needs to change to swap or add agents.
 | `dofs.py` | DoF schema — named external/internal degrees of freedom + obs/action converters |
 | `reservoir.py` | `SingleReservoir` — fixed-weight ESN reservoir (PyTorch, GPU-first) |
 | `brain.py` | `EmbodiedBrain` — single reservoir + RO Framework Observer + run loops + CLI |
+| `wim_brain.py` | `WimBrain` — wave reservoir (2D spring network) + bilateral brain layout + CLI |
+| `wim_gpu.py` | OpenGL wave visualizer — standalone sandbox or brain-mode with game connection |
 | `brain_viz.py` | Live pygame visualiser — reservoir heatmap, graph view, rolling signal plots |
 | `monitor.py` | Rich terminal sensor monitor (read-only, no body spawned) |
 | `brains/configs/` | Per-brain JSON config files (hyperparameters, paths, name) |
@@ -496,6 +498,211 @@ world = World(seed=42, cfg=cfg)
 world.add_agent()                          # spawn one AI body
 obs = world.get_ai_observation()           # float32 (263,)
 world.step(ai_action=(1.0, 0.0, 0.0))     # single-agent shorthand
+```
+
+---
+
+## WIM Brain — Wave Interference Memory
+
+`wim_brain.py` implements a second brain architecture that replaces the random recurrent
+matrix (ESN) with a **2D spring-network wave reservoir**. Instead of `tanh(W_res @ h)`,
+dynamics emerge from discrete wave physics on a grid — O(N) sparse neighbor coupling
+instead of O(N²) dense matrix multiplication.
+
+### Architecture
+
+```
+obs[263]  →  wave kicks at input nodes  →  spring physics on grid  →  disp[N]
+                                                                    →  tanh(disp)
+                                                                    →  W_out (3 × N) @ tanh(disp)
+                                                                    →  (fwd, turn, eat)
+```
+
+The reservoir state is the displacement field of a 2D spring network. Each node is
+connected to its 8 neighbors. Waves propagate, reflect off boundaries and anchors,
+and interfere — creating a rich, spatially structured hidden state. The readout
+(`W_out`) and learning rule (RPE-gated eligibility traces) are identical to the ESN brain.
+
+### Wave equation
+
+Each physics step computes:
+
+```
+force[i]  = tension × (mean_neighbors[i] − disp[i])
+vel[i]   *= (1 − damping)
+vel[i]   += force[i]
+disp[i]  += vel[i]
+```
+
+Anchor and barrier nodes are clamped to zero displacement and velocity.
+
+### Brain layout — bilateral architecture
+
+When `brain_layout: true` (default), the grid is organized as a dorsal cross-section
+of a brain:
+
+```
+y=0 (anterior — motor, decision)
+┌──────────┬─║─┬──────────┐
+│          │ ║ │          │
+│   LEFT   │ ║ │  RIGHT   │
+│   HEMI   │ ║ │  HEMI    │
+│          │ ║ │          │
+│ R-tactile│ ║ │L-tactile │   (somatosensory, mid-grid)
+│          │ ║ │          │
+│ R-vision │ ║ │L-vision  │   (occipital, posterior)
+└──────────┴─║─┴──────────┘
+y=grid_size (posterior — vision)
+```
+
+Key structural features:
+
+- **Corpus callosum** — a vertical barrier through the center column with slits at
+  every other row. Waves can pass between hemispheres only through the slits, creating
+  a natural bottleneck that encourages bilateral specialization.
+- **Cross-lateralized sensory input** — left visual field rays (0–59) inject into the
+  right hemisphere posterior region; right visual field rays (61–120) inject into the
+  left hemisphere. Center ray (60) is split. This mirrors the optic chiasm in biology.
+- **Tactile cross-wiring** — left body sensors → right hemisphere somatosensory region,
+  right body sensors → left hemisphere.
+- **Internal meters** (life, satiation, valence) — injected near the barrier in the
+  central region, accessible to both hemispheres.
+- **Corner anchors** — 4 fixed nodes near corners provide boundary conditions when
+  the brain layout replaces the default 9-point anchor grid.
+
+### Emergent tracking behavior
+
+The bilateral layout produces **target tracking with zero training** — the AI actively
+follows visible objects across all random seeds. This is a structural property, not learned:
+
+1. Visual input is cross-lateralized: an object in the right visual field injects signal
+   into the left hemisphere, and vice versa.
+2. The readout `W_out (3 × N)` maps the full grid to `(fwd, turn, eat)`. With random
+   `W_out`, the turn component is a linear combination of all node displacements.
+3. When the object is off-center (e.g. to the right), the left hemisphere receives
+   stronger input than the right. The asymmetric wave pattern produces a net turn
+   signal toward the object.
+4. When the object is centered, both hemispheres receive symmetric input. The
+   contributions to turn cancel (bilateral cancellation), producing near-zero turn —
+   a **structural basin of attraction** at centered visual input.
+5. This works regardless of the sign of `W_out` entries: what matters is that the
+   turn magnitude is minimized at centered input. The wave physics ensures smooth
+   interpolation between off-center and centered states.
+
+This is analogous to how bilateral organisms track stimuli via differential sensory
+input without requiring learned associations — the geometry of the sensor layout and
+body plan creates the tracking behavior.
+
+### GPU wave visualizer
+
+`wim_gpu.py` provides a real-time OpenGL visualizer for the wave reservoir. It can run
+standalone (interactive wave sandbox) or in brain mode (connected to the game).
+
+```bash
+# Standalone — click to create waves, adjust parameters
+python wim_gpu.py
+
+# Brain mode — visualize the brain's wave activity while connected to the game
+python wim_gpu.py --brain --config brains/configs/wim-64.json
+```
+
+**Display:**
+- Dark background, nodes white at rest
+- **Blue** = positive displacement (peak), **Red** = negative displacement (trough)
+- **Cyan** = sensory input nodes, **Gold** = anchor nodes, **Dim grey** = barrier (corpus callosum)
+- Node size pulses with displacement magnitude
+- Press `L` to toggle grid lines
+
+**Controls** (below the wave area):
+- **Tension** [0.05–0.9] — spring stiffness (wave speed)
+- **Reverb** [0–1] — wave persistence. Cubic mapping: `damping = 0.15 × (1−reverb)³`.
+  Default 0.5 (≈ 0.019 effective damping). At 0.99, waves persist for hundreds of steps.
+- **Grid Size** [10–128] — rebuild the grid (standalone mode only)
+- **Wave Radius** [10–300] — mouse click impact radius
+- **Start/Stop** — toggle wave simulation (standalone)
+- **Sensors** — toggle sensory input injection (brain mode). "Severed" = mouse-only input.
+- **Layout** — toggle golden/centered anchor pattern (standalone)
+- **Anchors** — enable/disable anchor nodes (standalone)
+
+**Scaling across grid sizes:**
+- Damping scales with grid size: `effective_damping = damping × (30 / grid_size)` so waves
+  travel the same proportional distance regardless of resolution.
+- Sub-stepping: `steps = max(1, round(grid_size / 30))` so wave speed is consistent.
+
+```bash
+# Custom window size
+python wim_gpu.py --width 1200 --wave-height 1000 --controls-height 120
+
+# Brain mode with custom config
+python wim_gpu.py --brain --config brains/configs/wim-64.json
+
+# Brain mode with save/load (all wim_brain.py flags are supported)
+python wim_gpu.py --brain --config brains/configs/wim-64.json --save brains/Wim-64.npz
+python wim_gpu.py --brain --load brains/Wim-64.npz --no-learn
+```
+
+In brain mode, all `wim_brain.py` flags work: `--save`, `--load`, `--no-learn`,
+`--device`, `--log-path`, `--log-every`, `--save-every`, `--no-reset`. Weights are
+also auto-saved on exit if a save path is set.
+
+### WIM config parameters
+
+WIM brains use the same config file format as ESN brains. Wave-specific keys:
+
+| Config key | Default | Meaning |
+|------------|---------|---------|
+| `grid_size` | 64 | Grid is grid_size × grid_size (N = grid_size²) |
+| `tension` | 0.3 | Spring stiffness — higher = faster wave propagation |
+| `reverb` | 0.5 | Echo persistence [0, 1] — higher = longer memory (cubic map to damping) |
+| `noise_scale` | 0.01 | Per-step Gaussian noise on free nodes |
+| `input_scale` | 1.0 | Amplitude scale for observation injection |
+| `brain_layout` | true | Enable corpus callosum + cross-lateralized input |
+| `anchor_layout` | "golden" | Anchor pattern when brain_layout=false ("golden" or "centered") |
+| `explore_noise` | 0.3 | Motor noise (much lower than ESN's 90 — wave dynamics are gentler) |
+
+All readout/learning parameters (`learn_lr`, `critic_lr`, `trace_decay`, `weight_decay`,
+`eat_threshold`, `decision_interval`, `action_feedback`) are identical to ESN configs.
+
+### WIM vs ESN comparison
+
+| Property | ESN (`brain.py`) | WIM (`wim_brain.py`) |
+|----------|------------------|----------------------|
+| Dynamics | `tanh(W_res @ h)` — dense O(N²) | Spring physics — sparse O(N) |
+| State | Hidden vector h[N] | 2D displacement field disp[N] |
+| Nonlinearity | tanh in recurrence | Linear springs; tanh at readout only |
+| Spatial structure | None (random graph) | 2D grid with neighbors |
+| Memory mechanism | Spectral radius → echo decay | Reverberating waves → standing modes |
+| Input injection | Random W_in columns | Spatially placed input nodes |
+| Boundary conditions | None | Anchor nodes + corpus callosum barrier |
+| Emergent behavior | Random motor bias | Bilateral tracking (zero training) |
+| Typical N | 4096–16384 | 4096 (64×64) |
+
+### WIM CLI
+
+```
+python wim_brain.py [options]
+
+  --config PATH        JSON config file (same format as brain.py)
+  --device cuda|cpu    Override device from config
+  --no-learn           Freeze W_out (inference only)
+  --headless N         Run N steps without display
+  --no-reset           Keep AI alive at life=0 on death (headless)
+  --save PATH          Override brain_path for this run
+  --load PATH          Force-load weights from PATH
+  --log-path PATH      Override log_path for this run
+  --log-every N        Print status every N steps (default 300)
+  --save-every N       Save to disk every N steps (default 3600)
+```
+
+```bash
+# New WIM brain
+python wim_brain.py --config brains/configs/wim-64.json
+
+# Headless training
+python wim_brain.py --config brains/configs/wim-64.json --headless 36000
+
+# Inference only
+python wim_brain.py --config brains/configs/wim-64.json --no-learn
 ```
 
 ---

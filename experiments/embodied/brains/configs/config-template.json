@@ -36,6 +36,8 @@
   "seed": 42,
   "_comment_action_feedback": "If true, feed the previous (fwd, turn, eat) triple back into the reservoir input each step (input_dim += 3).",
   "action_feedback": false,
+  "_comment_decision_interval": "Hold each action for N game frames before computing a new one. 1 = every frame. Higher values commit to actions longer, producing smoother movement and preventing frame-to-frame oscillation. 12 ≈ 5 decisions/sec at 60 fps.",
+  "decision_interval": 1,
   "_comment_device": "Compute device: 'cuda' or 'cpu'. Overridable at runtime with --device.",
   "device": "cuda"
 }

@@ -22,7 +22,7 @@ Key differences from ESN (brain.py)
 Parameters analogous to ESN
 ----------------------------
   tension      ≈  wave speed / coupling strength    (higher = faster propagation)
-  damping      ≈  memory decay per step             (higher = shorter echo horizon)
+  reverb       ≈  echo persistence [0, 1]           (higher = longer memory; maps to damping via cubic curve)
   noise_scale  ≈  reservoir noise scale             (richness / exploration)
   input_scale  ≈  W_in norm                         (observation amplitude at injection)
 
@@ -80,9 +80,19 @@ from brain import (                                            # noqa: E402
 # ── Wave hyperparameters ───────────────────────────────────────────────────────
 GRID_SIZE   = 64     # 64×64 = 4096 nodes — matches default ESN size for fair comparison
 TENSION     = 0.3    # spring stiffness (controls wave propagation speed)
-DAMPING     = 0.02   # velocity decay per step (shorter = longer echo)
 NOISE_SCALE = 0.01   # small per-step displacement noise (wave richness)
 INPUT_SCALE = 1.0    # amplitude of obs injection at input nodes
+
+# Reverb → damping conversion (shared with wim_gpu.py)
+REVERB_DEFAULT = 0.5   # 0 = dead (max damping), 1 = infinite echo (zero damping)
+_DAMPING_MAX   = 0.15  # damping at reverb=0
+_DAMPING_POW   = 3     # cubic curve for perceptual linearity
+REF_GRID       = 30    # reference grid size for scaling damping with resolution
+
+
+def reverb_to_damping(reverb: float) -> float:
+    """Convert user-facing reverb [0, 1] to physics damping coefficient."""
+    return _DAMPING_MAX * (1.0 - reverb) ** _DAMPING_POW
 
 # ── Default config ─────────────────────────────────────────────────────────────
 WAVE_DEFAULT_CONFIG: dict = {
@@ -94,7 +104,7 @@ WAVE_DEFAULT_CONFIG: dict = {
     # Wave reservoir
     "grid_size":        GRID_SIZE,
     "tension":          TENSION,
-    "damping":          DAMPING,
+    "reverb":           REVERB_DEFAULT,
     "noise_scale":      NOISE_SCALE,
     "input_scale":      INPUT_SCALE,
     "anchor_layout":    "golden",   # "golden" | "centered" (only when brain_layout=false)
@@ -350,7 +360,7 @@ class WaveReservoir:
         grid_size:     int   = GRID_SIZE,
         input_dim:     int   = OBS_DIM,
         tension:       float = TENSION,
-        damping:       float = DAMPING,
+        damping:       float = reverb_to_damping(REVERB_DEFAULT),
         noise_scale:   float = NOISE_SCALE,
         input_scale:   float = INPUT_SCALE,
         anchors:       bool  = True,
@@ -539,6 +549,14 @@ class WimBrain:
         input_dim             = OBS_DIM + (3 if action_feedback else 0)
         res_size              = grid_size * grid_size
 
+        # Resolve damping from reverb (or legacy damping key)
+        if "reverb" in cfg:
+            damping = reverb_to_damping(float(cfg["reverb"]))
+        elif "damping" in cfg:
+            damping = float(cfg["damping"])
+        else:
+            damping = reverb_to_damping(REVERB_DEFAULT)
+
         # ── Wave reservoir ──────────────────────────────────────────────────
         brain_layout = cfg.get("brain_layout", True)
 
@@ -555,7 +573,7 @@ class WimBrain:
                 grid_size     = grid_size,
                 input_dim     = input_dim,
                 tension       = cfg["tension"],
-                damping       = cfg["damping"],
+                damping       = damping,
                 noise_scale   = cfg["noise_scale"],
                 input_scale   = cfg["input_scale"],
                 anchors       = False,
@@ -570,7 +588,7 @@ class WimBrain:
                 grid_size     = grid_size,
                 input_dim     = input_dim,
                 tension       = cfg["tension"],
-                damping       = cfg["damping"],
+                damping       = damping,
                 noise_scale   = cfg["noise_scale"],
                 input_scale   = cfg["input_scale"],
                 anchors       = True,
@@ -808,7 +826,8 @@ examples:
     print(f"  input_dim:      {OBS_DIM + (3 if cfg['action_feedback'] else 0)}  "
           f"({n_input} nodes receive direct obs injection)")
     print(f"  grid:           {grid_size}×{grid_size} = {res_size} nodes")
-    print(f"  tension:        {cfg['tension']}   damping: {cfg['damping']}")
+    reverb = cfg.get("reverb", REVERB_DEFAULT)
+    print(f"  tension:        {cfg['tension']}   reverb: {reverb}  (damping: {reverb_to_damping(reverb):.4f})")
     print(f"  noise_scale:    {cfg['noise_scale']}   input_scale: {cfg['input_scale']}")
     print(f"  anchor_layout:  {cfg['anchor_layout']}")
     print(f"  explore_noise:  {cfg['explore_noise']}")

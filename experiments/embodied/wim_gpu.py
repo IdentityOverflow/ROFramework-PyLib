@@ -60,13 +60,15 @@ from OpenGL.GL import (
 from OpenGL.GL.shaders import compileProgram, compileShader
 
 
-TENSION = 0.3
+from wim_brain import (
+    reverb_to_damping, REVERB_DEFAULT, REF_GRID,
+    TENSION as _WIM_TENSION,
+)
+
+TENSION = _WIM_TENSION
 DRAW_LINES = False
-_REF_GRID = 30       # reference grid size for scaling damping with resolution
-_DAMPING_MAX = 0.15  # effective damping at reverb=0 (waves die in ~2 cycles)
-_DAMPING_POW = 3     # cubic curve — high reverb end is sensitive, low end is gentle
-_REVERB_DEFAULT = 0.5  # reverb=0.5 ≈ old DAMPING=0.02 feel
-DAMPING = _DAMPING_MAX * (1.0 - _REVERB_DEFAULT) ** _DAMPING_POW  # ≈ 0.019
+_REVERB_DEFAULT = REVERB_DEFAULT
+DAMPING = reverb_to_damping(_REVERB_DEFAULT)
 
 _ANCHOR_LAYOUT_CENTERED = "centered"
 _ANCHOR_LAYOUT_GOLDEN = "golden"
@@ -194,6 +196,9 @@ _state_upload = None    # (N, 3) temp for GL upload
 # ── Brain mode globals ──────────────────────────────────────────────────────────
 _brain = None           # WimBrain | None
 _brain_state = {}       # {"fwd": 0, "turn": 0, "eat": 0, "reward": 0, "step": 0}
+_brain_args = None      # parsed args (for save/log intervals)
+_brain_save_path = None # resolved save path
+_brain_log_file = None  # open log file handle
 _client = None          # game client socket
 _sensors_on = True      # False = obs injection severed; mouse poke only
 
@@ -304,7 +309,7 @@ def regenerate_grid():
         grid_size=size,
         input_dim=263,
         tension=TENSION,
-        damping=DAMPING * (_REF_GRID / size),
+        damping=DAMPING * (REF_GRID / size),
         noise_scale=0.0,
         input_scale=1.0,
         anchors=anchors_enabled,
@@ -400,7 +405,7 @@ def apply_slider_values(renderer):
         if name == "Tension":
             TENSION = float(slider["value"])
         elif name == _SLIDER_REVERB:
-            DAMPING = _DAMPING_MAX * (1.0 - float(slider["value"])) ** _DAMPING_POW
+            DAMPING = reverb_to_damping(float(slider["value"]))
         elif name == _SLIDER_WAVE_RADIUS:
             wave_radius = int(round(slider["value"]))
         elif name == _SLIDER_GRID_SIZE:
@@ -408,7 +413,7 @@ def apply_slider_values(renderer):
 
     if _res is not None:
         _res._tension = TENSION
-        _res._damping = DAMPING * (_REF_GRID / grid_size)
+        _res._damping = DAMPING * (REF_GRID / grid_size)
 
     if grid_size != old_size:
         regenerate_grid()
@@ -417,7 +422,7 @@ def apply_slider_values(renderer):
 
 def update_simulation():
     if _res is not None:
-        steps = max(1, round(grid_size / _REF_GRID))
+        steps = max(1, round(grid_size / REF_GRID))
         for _ in range(steps):
             _res.step_wave()
 
@@ -866,6 +871,23 @@ def _parse_args():
                         help="Brain config JSON (used with --brain)")
     parser.add_argument("--headless", type=int, default=0, metavar="N",
                         help="Brain mode: run N steps then exit (0 = connect to game)")
+    # Brain flags (passed through to WimBrain, ignored in standalone mode)
+    parser.add_argument("--device", choices=["cuda", "cpu"], default=None,
+                        help="Override device from config")
+    parser.add_argument("--save", metavar="PATH", default=None,
+                        help="Override brain_path for this run")
+    parser.add_argument("--load", metavar="PATH", default=None,
+                        help="Force-load weights from PATH")
+    parser.add_argument("--no-learn", action="store_true",
+                        help="Freeze W_out (inference only)")
+    parser.add_argument("--no-reset", action="store_true",
+                        help="Keep AI alive at life=0 on death")
+    parser.add_argument("--log-path", metavar="PATH", default=None,
+                        help="Override log_path for this run")
+    parser.add_argument("--log-every", type=int, default=300, metavar="N",
+                        help="Print status every N steps (default 300)")
+    parser.add_argument("--save-every", type=int, default=3600, metavar="N",
+                        help="Save to disk every N steps (default 3600)")
     return parser.parse_args()
 
 
@@ -883,9 +905,26 @@ def _setup_brain(args):
         cfg = {**WAVE_DEFAULT_CONFIG, **{k: v for k, v in _raw.items() if not k.startswith("_")}}
     else:
         cfg = dict(WAVE_DEFAULT_CONFIG)
+    if args.device:
+        cfg["device"] = args.device
     dev_str = cfg.get("device", "cuda")
     _brain = WimBrain(config=cfg, device=dev_str)
     _res = _brain._reservoir
+
+    # Load weights if requested (--load flag or brain_path from config)
+    load_path = args.load
+    if load_path is None and cfg.get("brain_path"):
+        import os
+        bp = cfg["brain_path"]
+        if os.path.exists(bp):
+            load_path = bp
+    if load_path:
+        _brain.load(load_path)
+        print(f"[brain] Loaded weights from {load_path}  |W_out|={_brain.w_out_norm:.5f}")
+
+    if args.no_learn:
+        _brain.learning_enabled = False
+        print("[brain] Learning disabled.")
 
     # Rebuild node positions to match the brain's grid size
     size = _res.grid_size
@@ -919,12 +958,41 @@ def _setup_brain(args):
     _state_upload = np.zeros((n, 3), dtype=np.float32)
     _line_vertices = _build_line_vertices(size, _node_pos)
 
+    # Resolve save path
+    global _brain_args, _brain_save_path, _brain_log_file
+    _brain_args = args
+    _brain_save_path = args.save or cfg.get("brain_path") or None
+    log_path = args.log_path or cfg.get("log_path") or None
+    if log_path:
+        from brain import _open_log
+        _brain_log_file = _open_log(log_path)
+        print(f"[brain] Logging to {log_path}")
+    if _brain_save_path:
+        print(f"[brain] Will save to {_brain_save_path} every {args.save_every} steps")
+
+    # Sync sliders to brain config values
+    global TENSION, DAMPING, grid_size
+    reverb = cfg.get("reverb", _REVERB_DEFAULT)
+    TENSION = cfg.get("tension", TENSION)
+    DAMPING = reverb_to_damping(reverb)
+    grid_size = size
+    for s in sliders:
+        if s["name"] == "Tension":
+            s["value"] = TENSION
+            s["text"] = f"{TENSION:.3f}"
+        elif s["name"] == _SLIDER_REVERB:
+            s["value"] = reverb
+            s["text"] = f"{reverb:.3f}"
+        elif s["name"] == _SLIDER_GRID_SIZE:
+            s["value"] = float(size)
+            s["text"] = str(size)
+
     print(f"[brain] WimBrain loaded  grid={size}x{size}  device={dev}  "
-          f"input_nodes={len(input_np)}")
+          f"input_nodes={len(input_np)}  reverb={reverb}")
 
 
 def _brain_tick():
-    """One game step: recv obs, forward, learn, send action."""
+    """One game step: recv obs, forward, learn, send action, periodic save/log."""
     global _brain_state
     if _client is None:
         return
@@ -945,13 +1013,26 @@ def _brain_tick():
     _client.send_action((fwd, turn, eat))
     if done:
         _brain.reset_state()
+    step = _brain_state.get("step", 0) + 1
     _brain_state = {
         "fwd":    fwd,
         "turn":   turn,
         "eat":    eat,
         "reward": reward,
-        "step":   _brain_state.get("step", 0) + 1,
+        "step":   step,
     }
+
+    # Periodic logging
+    args = _brain_args
+    if args and step % args.log_every == 0:
+        print(f"[brain] step {step:>7d}  reward {reward:+.3f}  "
+              f"fwd:{fwd:+.2f}  turn:{turn:+.2f}  eat:{'ON' if eat > 0.5 else 'off'}  "
+              f"|W_out| {_brain.w_out_norm:.2f}")
+
+    # Periodic save
+    if args and _brain_save_path and step % args.save_every == 0:
+        _brain.save(_brain_save_path)
+        print(f"[brain] Saved to {_brain_save_path}  (step {step})")
 
 
 def main():
@@ -1105,6 +1186,11 @@ def main():
 
         if _brain is None:
             clock.tick(240)  # standalone: max fps
+
+    # Save on exit
+    if _brain is not None and _brain_save_path:
+        _brain.save(_brain_save_path)
+        print(f"[brain] Saved to {_brain_save_path}  (exit)")
 
     pygame.quit()
     sys.exit()

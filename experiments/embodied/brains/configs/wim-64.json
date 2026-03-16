@@ -9,8 +9,8 @@
 
   "grid_size":      64,
   "tension":        0.3,
-  "damping":        0.02,
-  "noise_scale":    0.05,
+  "reverb":         0.5,
+  "noise_scale":    0.00,
   "input_scale":    1.0,
   "anchor_layout":  "golden",
 
