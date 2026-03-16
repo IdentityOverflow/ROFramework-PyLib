@@ -1,15 +1,15 @@
 {
   "food_count": 20,
-  "danger_count": 10,
+  "danger_count": 20,
   "food_respawn_steps": 300,
   "spawn_near_food": true,
   "entity_speed": 3.0,
   "entity_turn_speed": 0.06,
   "vision_range": 450.0,
   "satiation_drain_rate": 0.0001,
-  "valence_decay_neg": 0.001,
+  "valence_decay_neg": 0.01,
   "valence_decay_pos": 0.001,
-  "hunger_valence_drain": 0.002,
+  "hunger_valence_drain": 0.015,
   "danger_life_delay_steps": 180,
   "life_drain_rate": 0.001,
   "food_pleasure": 0.6,
@@ -17,5 +17,5 @@
   "food_life_gain": 0.15,
   "danger_vision_penalty": 0.002,
   "food_vision_reward": 0.002,
-  "danger_contact_valence_floor": -0.5
+  "danger_contact_valence_floor": -0.9
 }

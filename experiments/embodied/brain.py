@@ -45,6 +45,7 @@ import json
 import os
 import signal
 import sys
+import time
 from datetime import datetime
 from typing import Optional
 
@@ -153,6 +154,7 @@ DEFAULT_CONFIG: dict = {
     # Arch
     "seed":            42,
     "action_feedback": False,
+    "decision_interval": 1,  # hold each action for N game frames (1 = every frame)
     "device":          "cuda",
 }
 
@@ -555,17 +557,22 @@ def run_connected(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
     client.connect(name=getattr(args, "_brain_name", ""))
     csv_writer = _open_log(args.log_path) if args.log_path else None
 
+    decision_interval = getattr(args, "_decision_interval", 1)
     step       = 0
     eat_count  = 0
     episodes   = 0
     reward_sum = 0.0
     fwd_sum    = 0.0
     turn_sum   = 0.0
+    fwd = turn = eat = 0.0
 
+    _frame_dt = 1.0 / 60.0   # target one action per game frame
     try:
         obs, reward, done, _ = client.recv_obs()
+        _t = time.monotonic()
         while True:
-            fwd, turn, eat = brain.forward(obs)
+            if step % decision_interval == 0:
+                fwd, turn, eat = brain.forward(obs)
             brain.learn(reward)
             if done:
                 brain.reset_state()
@@ -587,6 +594,13 @@ def run_connected(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
             if args.save and step % args.save_every == 0:
                 brain.save(args.save)
                 print(f"  [saved → {args.save}]")
+
+            # Pace to ~60fps so actions don't pile up in the game's receive buffer
+            _now = time.monotonic()
+            _remaining = _frame_dt - (_now - _t)
+            if _remaining > 0:
+                time.sleep(_remaining)
+            _t = time.monotonic()
 
             obs, reward, done, _ = _recv_with_retry(client, _zmq_again)
 
@@ -615,6 +629,7 @@ def run_headless(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
     world      = World(seed=getattr(args, "seed", 42), no_reset_on_death=args.no_reset, cfg=world_cfg)
     world.add_agent()   # headless mode bypasses registration; spawn slot 0 directly
     csv_writer = _open_log(args.log_path) if args.log_path else None
+    decision_interval = getattr(args, "_decision_interval", 1)
     n_steps    = args.headless
     step       = 0
     eat_count  = 0
@@ -623,6 +638,7 @@ def run_headless(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
     fwd_sum    = 0.0
     turn_sum   = 0.0
     prev_life  = 1.0
+    fwd = turn = eat = 0.0
 
     try:
         while step < n_steps:
@@ -634,7 +650,8 @@ def run_headless(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
             done   = (not args.no_reset) and bool(life > 0.9 and prev_life < 0.1)
             prev_life = life
 
-            fwd, turn, eat = brain.forward(obs)
+            if step % decision_interval == 0:
+                fwd, turn, eat = brain.forward(obs)
             brain.learn(reward)
             if done:
                 brain.reset_state()
@@ -769,11 +786,16 @@ examples:
 
     brain = _build_brain(cfg, args.carrier)
 
-    print(f"  Device:     {brain._dev}")
-    print(f"  input_dim:  {OBS_DIM + (3 if cfg['action_feedback'] else 0)}")
-    print(f"  res_size:   {cfg['res_size']}")
-    print(f"  W_out:      {tuple(brain.W_out.shape)}  |norm|={brain.w_out_norm:.5f}")
-    print(f"  K assess:   every {cfg['assess_every']} steps  "
+    print(f"  Device:        {brain._dev}")
+    print(f"  input_dim:     {OBS_DIM + (3 if cfg['action_feedback'] else 0)}")
+    print(f"  res_size:      {cfg['res_size']}")
+    print(f"  noise_scale:   {cfg['noise_scale']}")
+    print(f"  explore_noise: {cfg['explore_noise']}")
+    print(f"  alpha:         {cfg['alpha']}")
+    print(f"  W_out:         {tuple(brain.W_out.shape)}  |norm|={brain.w_out_norm:.5f}")
+    di = cfg.get('decision_interval', 1)
+    print(f"  decision_int:  {di}  {'(new action every frame)' if di <= 1 else f'(hold each action for {di} frames)'}")
+    print(f"  K assess:      every {cfg['assess_every']} steps  "
           f"(log capacity {cfg['log_capacity']}, min_samples=50)")
 
     if load_path:
@@ -789,8 +811,9 @@ examples:
     if brain_path:
         save_config(cfg, _config_path(brain_path))
 
-    args._brain_name   = cfg.get("name") or ""
-    args._world_config = cfg.get("world_config") or None
+    args._brain_name         = cfg.get("name") or ""
+    args._world_config       = cfg.get("world_config") or None
+    args._decision_interval  = cfg.get("decision_interval", 1)
 
     if args.headless:
         print(f"\nRunning {args.headless} headless steps…")

@@ -45,5 +45,7 @@
   "danger_vision_penalty": 0.002,
   "_comment_danger_vision_penalty": "Valence penalty per step for danger visible in forward cone (proximity-scaled). Provides approach gradient.",
   "food_vision_reward": 0.002,
-  "_comment_food_vision_reward": "Valence reward per step for food visible in forward cone (proximity-scaled). Kept ≤ danger penalty so avoidance dominates."
+  "_comment_food_vision_reward": "Valence reward per step for food visible in forward cone (proximity-scaled). Kept ≤ danger penalty so avoidance dominates.",
+  "danger_contact_valence_floor": -0.5,
+  "_comment_danger_contact_valence_floor": "Valence is clamped to this value on direct danger contact (before life drain kicks in). Range [-1, 0]. -0.5 = moderate pain, -1.0 = maximum pain immediately on touch."
 }

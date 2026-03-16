@@ -354,14 +354,17 @@ def run_connected_viz(brain: EmbodiedBrain, viz: BrainViz,
 
     from connector import AgentConnector  # noqa: PLC0415
     client     = AgentConnector()
-    client.connect()
+    client.connect(name=getattr(args, "_brain_name", ""))
     csv_writer = _open_log(args.log_path) if args.log_path else None
+    decision_interval = getattr(args, "_decision_interval", 1)
     st         = _make_run_state()
+    fwd = turn = eat = 0.0
 
     try:
         obs, reward, done, _ = client.recv_obs()
         while True:
-            fwd, turn, eat = brain.forward(obs)
+            if st["step"] % decision_interval == 0:
+                fwd, turn, eat = brain.forward(obs)
             rpe = reward - brain._valence_pred
             brain.learn(reward)
             if done:
@@ -392,8 +395,10 @@ def run_headless_viz(brain: EmbodiedBrain, viz: BrainViz,
     world_cfg  = _load_world_config(args._world_config) if getattr(args, "_world_config", None) else {}
     world      = World(seed=getattr(args, "seed", 42), cfg=world_cfg)
     csv_writer = _open_log(args.log_path) if args.log_path else None
+    decision_interval = getattr(args, "_decision_interval", 1)
     st         = _make_run_state()
     prev_life  = 1.0
+    fwd = turn = eat = 0.0
 
     try:
         while st["step"] < args.headless:
@@ -403,7 +408,8 @@ def run_headless_viz(brain: EmbodiedBrain, viz: BrainViz,
             done   = bool(life > 0.9 and prev_life < 0.1)
             prev_life = life
 
-            fwd, turn, eat = brain.forward(obs)
+            if st["step"] % decision_interval == 0:
+                fwd, turn, eat = brain.forward(obs)
             rpe = reward - brain._valence_pred
             brain.learn(reward)
             if done:
@@ -467,15 +473,19 @@ examples:
     args.log_path              = log_path
     args._brain_name           = cfg.get("name") or ""
     args._world_config         = cfg.get("world_config") or None
+    args._decision_interval    = cfg.get("decision_interval", 1)
 
     print(f"Building EmbodiedBrain  (res_size={cfg['res_size']}, "
           f"action_feedback={cfg['action_feedback']})…")
 
     brain = _build_brain(cfg, args.carrier)
 
-    print(f"  Device:    {brain._dev}")
-    print(f"  res_size:  {cfg['res_size']}")
-    print(f"  W_out:     {tuple(brain.W_out.shape)}  |norm|={brain.w_out_norm:.5f}")
+    print(f"  Device:        {brain._dev}")
+    print(f"  res_size:      {cfg['res_size']}")
+    print(f"  noise_scale:   {cfg['noise_scale']}")
+    print(f"  explore_noise: {cfg['explore_noise']}")
+    print(f"  alpha:         {cfg['alpha']}")
+    print(f"  W_out:         {tuple(brain.W_out.shape)}  |norm|={brain.w_out_norm:.5f}")
 
     if load_path:
         brain.load(load_path)

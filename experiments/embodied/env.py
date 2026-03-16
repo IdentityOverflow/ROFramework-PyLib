@@ -157,8 +157,9 @@ SPAWN_NEAR_DIST: float = ENTITY_RADIUS * 4   # ~72 px  — close but not on top
 # Food:   +0.001 / step at max proximity (≈ +0.06 / s at 60 fps)
 #   Kept half the danger penalty so food-seeking doesn't override avoidance when
 #   both are visible.  No effect while already eating (contact spike dominates).
-DANGER_VISION_PENALTY: float = 0.002
-FOOD_VISION_REWARD:    float = 0.002
+DANGER_VISION_PENALTY:        float = 0.002
+FOOD_VISION_REWARD:           float = 0.002
+DANGER_CONTACT_VALENCE_FLOOR: float = -0.5   # valence is clamped to this on danger touch
 
 
 # ── Data classes ──────────────────────────────────────────────────────────────
@@ -307,12 +308,13 @@ class World:
         self._food_life_gain         = float(c.get("food_life_gain",         FOOD_LIFE_GAIN))
         self._other_entity_pleasure  = float(c.get("other_entity_pleasure",  OTHER_ENTITY_PLEASURE))
         self._other_entity_touch_cap = float(c.get("other_entity_touch_cap", OTHER_ENTITY_TOUCH_CAP))
-        self._danger_vis_penalty     = float(c.get("danger_vision_penalty",  DANGER_VISION_PENALTY))
-        self._food_vis_reward        = float(c.get("food_vision_reward",     FOOD_VISION_REWARD))
+        self._danger_vis_penalty          = float(c.get("danger_vision_penalty",        DANGER_VISION_PENALTY))
+        self._food_vis_reward             = float(c.get("food_vision_reward",           FOOD_VISION_REWARD))
+        self._danger_contact_valence_floor= float(c.get("danger_contact_valence_floor", DANGER_CONTACT_VALENCE_FLOOR))
         # ──────────────────────────────────────────────────────────────────────
 
-        self.foods   = self._spawn_foods(self._food_count)
         self.dangers = self._spawn_dangers(self._danger_count)
+        self.foods   = self._spawn_foods(self._food_count)
         self.agents: List[Entity] = []
         self.player = Entity(*_PLAYER_START)
         self._configure_entity(self.player)
@@ -409,8 +411,8 @@ class World:
 
     def reset(self, keep_counts: bool = False) -> None:
         counts = (self.step_count, self.death_count) if keep_counts else (0, 0)
-        self.foods   = self._spawn_foods(self._food_count)
         self.dangers = self._spawn_dangers(self._danger_count)
+        self.foods   = self._spawn_foods(self._food_count)
         self.agents  = []
         self.player  = Entity(*_PLAYER_START)
         self._configure_entity(self.player)
@@ -630,6 +632,20 @@ class World:
             b.x = float(np.clip(b.x + nx * overlap, rb, WORLD_W - rb))
             b.y = float(np.clip(b.y + ny * overlap, rb, WORLD_H - rb))
 
+    def _push_from_danger(self, entity: Entity) -> None:
+        """Push entity out of any overlapping danger object (dangers are static)."""
+        min_dist = entity.radius + DANGER_RADIUS
+        for danger in self.dangers:
+            dx = entity.x - danger.x
+            dy = entity.y - danger.y
+            dist = float(np.hypot(dx, dy))
+            if 0 < dist < min_dist:
+                nx, ny = dx / dist, dy / dist
+                push = min_dist - dist + 0.5
+                r = entity.radius
+                entity.x = float(np.clip(entity.x + nx * push, r, WORLD_W - r))
+                entity.y = float(np.clip(entity.y + ny * push, r, WORLD_H - r))
+
     def _resolve_entities(self) -> None:
         if self.player_active:
             for agent in self.agents:
@@ -641,6 +657,11 @@ class World:
             for j in range(i + 1, len(self.agents)):
                 if self.agents[j] is not None:
                     self._push_apart(self.agents[i], self.agents[j])
+        all_entities = ([self.player] if self.player_active else []) + [
+            a for a in self.agents if a is not None
+        ]
+        for entity in all_entities:
+            self._push_from_danger(entity)
 
     def _try_pat_ai(self) -> None:
         for agent in self.agents:
@@ -810,7 +831,7 @@ class World:
             m.life    = max(0.0, m.life - self._life_drain_rate)
             m.valence = -(0.5 + 0.5 * (1.0 - m.life))
         elif in_danger:
-            m.valence = min(m.valence, -0.5)
+            m.valence = min(m.valence, self._danger_contact_valence_floor)
         elif m.satiation <= -1.0:
             net = self._hunger_valence_drain - self._valence_decay_neg
             m.valence = float(np.clip(m.valence - net, -1.0, 1.0))
@@ -861,10 +882,7 @@ class World:
                 food.respawn_timer -= 1
                 if food.respawn_timer <= 0:
                     food.active = True
-                    food.x = float(self._rng.uniform(
-                        FOOD_RADIUS + 40, WORLD_W - FOOD_RADIUS - 40))
-                    food.y = float(self._rng.uniform(
-                        FOOD_RADIUS + 40, WORLD_H - FOOD_RADIUS - 40))
+                    food.x, food.y = self._safe_food_pos()
 
     # ── Spawning ──────────────────────────────────────────────────────────────
 
@@ -882,14 +900,19 @@ class World:
         heading = float(np.arctan2(food.y - y, food.x - x))   # face the food
         return x, y, heading
 
+    def _safe_food_pos(self) -> Tuple[float, float]:
+        """Sample a food position that doesn't overlap any danger (max 20 tries)."""
+        min_dist = FOOD_RADIUS + DANGER_RADIUS + 2.0
+        x, y = 0.0, 0.0
+        for _ in range(20):
+            x = float(self._rng.uniform(FOOD_RADIUS + 40, WORLD_W - FOOD_RADIUS - 40))
+            y = float(self._rng.uniform(FOOD_RADIUS + 40, WORLD_H - FOOD_RADIUS - 40))
+            if all(np.hypot(x - d.x, y - d.y) >= min_dist for d in self.dangers):
+                break  # accept first non-overlapping position
+        return x, y
+
     def _spawn_foods(self, count: int) -> List[Food]:
-        return [
-            Food(
-                x=float(self._rng.uniform(FOOD_RADIUS + 40, WORLD_W - FOOD_RADIUS - 40)),
-                y=float(self._rng.uniform(FOOD_RADIUS + 40, WORLD_H - FOOD_RADIUS - 40)),
-            )
-            for _ in range(count)
-        ]
+        return [Food(*self._safe_food_pos()) for _ in range(count)]
 
     def _spawn_dangers(self, count: int) -> List[Danger]:
         return [

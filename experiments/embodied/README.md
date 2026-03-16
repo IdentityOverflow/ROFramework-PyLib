@@ -281,8 +281,8 @@ headless mode (`--headless N`) brain.py loads it automatically to configure the 
 
 **Safe to change between runs** (even after a checkpoint exists):
 `explore_noise`, `eat_threshold`, `learn_lr`, `critic_lr`, `trace_decay`,
-`weight_decay`, `assess_every`, `log_capacity`, `name`, `brain_path`, `log_path`,
-`world_config`, `device`.
+`weight_decay`, `assess_every`, `log_capacity`, `decision_interval`, `name`,
+`brain_path`, `log_path`, `world_config`, `device`.
 
 **Do not change after a checkpoint exists** — these define the reservoir structure
 and changing them invalidates the saved W_out:
@@ -304,6 +304,7 @@ and changing them invalidates the saved W_out:
 | `log_capacity` | 5000 | Observer log depth (~83 s at 60fps) |
 | `seed` | 42 | Reservoir weight init seed |
 | `action_feedback` | false | Feed previous (fwd,turn,eat) back into reservoir input |
+| `decision_interval` | 1 | Hold each action for N game frames (1 = every frame, 12 ≈ 5 decisions/sec) |
 | `device` | "cuda" | Compute device |
 
 ---
