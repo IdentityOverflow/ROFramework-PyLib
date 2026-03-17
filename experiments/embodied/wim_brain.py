@@ -109,6 +109,8 @@ WAVE_DEFAULT_CONFIG: dict = {
     "input_scale":      INPUT_SCALE,
     "anchor_layout":    "golden",   # "golden" | "centered" (only when brain_layout=false)
     "brain_layout":     True,       # corpus callosum + cross-lateralized sensory placement
+    "approach_bias":    0.05,       # forward W_out bias on visual nodes (0 = no bias)
+    "turn_bias":        0.0,        # contralateral turn prior on visual nodes (0 = random turn row)
     # Readout / learning  (same keys as brain.py for config compatibility)
     "explore_noise":    0.3,        # wave brain default — lower than ESN's 90
     "eat_threshold":    EAT_THRESHOLD,
@@ -537,11 +539,14 @@ class WimBrain:
         config:          Optional[dict] = None,
         device:          str            = "cpu",
         action_feedback: bool           = False,
-        seed:            int            = 42,
+        seed:            Optional[int]  = None,
     ) -> None:
         cfg = dict(WAVE_DEFAULT_CONFIG)
         if config:
             cfg.update(config)
+
+        if seed is None:
+            seed = int(cfg.get("seed", 42))
 
         self._dev             = _select_device(device)
         self._action_feedback = action_feedback
@@ -599,10 +604,37 @@ class WimBrain:
 
         # ── Readout (trained) ───────────────────────────────────────────────
         rng = np.random.default_rng(seed + 99)
+        _ref_res = 64 * 64                            # reference grid where 0.01 works
+        w_scale = 0.01 / np.sqrt(res_size / _ref_res) # scale-invariant init
         self.W_out = torch.from_numpy(
-            rng.standard_normal((3, res_size)).astype(np.float32) * 0.01
+            rng.standard_normal((3, res_size)).astype(np.float32) * w_scale
         ).to(self._dev)
         self.b_out = torch.zeros(3, dtype=torch.float32, device=self._dev)
+
+        # Structural prior: bias forward row so visual stimulation → approach.
+        # Vision input nodes are the first 242 entries in the input node list.
+        # The reward system then refines: food reward reinforces, danger pain suppresses.
+        if brain_layout:
+            approach_bias = float(cfg.get("approach_bias", 0.05))
+            turn_bias = float(cfg.get("turn_bias", 0.0))
+            vis_nodes = self._reservoir._input_nodes[:242]
+            self.W_out[0, vis_nodes] += approach_bias
+
+            if turn_bias != 0.0:
+                vis_nodes_np = vis_nodes.detach().cpu().numpy()
+                hemi_x = vis_nodes_np // grid_size
+                left_hemi_np = vis_nodes_np[hemi_x < (grid_size // 2)]
+                right_hemi_np = vis_nodes_np[hemi_x > (grid_size // 2)]
+
+                # Vision is cross-lateralized: right field drives the left hemisphere and
+                # should bias positive turn (right), while left field drives the right
+                # hemisphere and should bias negative turn (left).
+                if len(left_hemi_np):
+                    left_hemi = torch.from_numpy(left_hemi_np.astype(np.int64)).to(self._dev)
+                    self.W_out[1, left_hemi] += turn_bias
+                if len(right_hemi_np):
+                    right_hemi = torch.from_numpy(right_hemi_np.astype(np.int64)).to(self._dev)
+                    self.W_out[1, right_hemi] -= turn_bias
 
         # ── Online learning state ───────────────────────────────────────────
         self._trace        = torch.zeros(3, res_size, dtype=torch.float32, device=self._dev)

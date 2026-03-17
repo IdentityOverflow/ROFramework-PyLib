@@ -71,7 +71,7 @@ from typing import List, Optional, Tuple
 
 # ── World ─────────────────────────────────────────────────────────────────────
 WORLD_W: int = 1200
-WORLD_H: int = 900
+WORLD_H: int = 1200
 
 # ── Entities ──────────────────────────────────────────────────────────────────
 ENTITY_RADIUS:     float = 18.0

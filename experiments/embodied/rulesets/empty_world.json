@@ -1,5 +1,5 @@
 {
-  "food_count": 0,
+  "food_count": 1,
   "danger_count": 0,
   "food_respawn_steps": 0,
   "spawn_near_food": false,
