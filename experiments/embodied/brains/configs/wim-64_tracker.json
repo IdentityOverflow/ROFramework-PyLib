@@ -1,0 +1,33 @@
+{
+  "_comment": "WimBrain — 64×64 wave grid, golden anchor layout",
+  "_brain_type": "wim_brain.py",
+
+  "name": "Wim-64",
+  "brain_path": "brains/Wim-64.npz",
+  "log_path":   "brains/logs/Wim-64.csv",
+  "world_config": "rulesets/harsher-world.json",
+
+  "grid_size":      128,
+  "tension":        1.2,
+  "reverb":         0.02,
+  "noise_scale":    0.0,
+  "input_scale":    3.0,
+  "anchor_layout":  "golden",
+  "approach_bias":  0.02,
+  "turn_bias":      0.02,
+  "normalize_dynamics": true,
+  "explore_noise":  0.0,
+  "eat_threshold":  0.0,
+  "learn_lr":       0.001,
+  "critic_lr":      0.01,
+  "trace_decay":    0.99,
+  "weight_decay":   1e-5,
+
+  "assess_every":   300,
+  "log_capacity":   5000,
+
+  "seed":             42,
+  "action_feedback":  true,
+  "decision_interval": 1,
+  "device":           "cuda"
+}
