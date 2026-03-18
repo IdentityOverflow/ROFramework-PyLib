@@ -207,9 +207,9 @@ def main() -> None:
     if len(sys.argv) > 1:
         paths = [Path(p) for p in sys.argv[1:]]
     else:
-        paths = sorted(LOGS_DIR.glob("*.log"))
+        paths = sorted(LOGS_DIR.glob("*.csv"))
         if not paths:
-            print(f"No .log files found in {LOGS_DIR}")
+            print(f"No .csv files found in {LOGS_DIR}")
             sys.exit(1)
 
     print(f"Loading {len(paths)} log(s):")

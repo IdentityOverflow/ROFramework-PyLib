@@ -148,7 +148,8 @@ The 1200 × 900 px environment contains:
 Default counts and reward values are set in `rulesets/default.json` and can be changed without
 retraining — see the **Rulesets** section below.
 
-The player can accelerate learning by feeding AIs and patting them.
+The player can accelerate learning by feeding AIs, patting them, and **teleoperating** them
+(see the Teleoperation section below).
 
 ---
 
@@ -159,11 +160,12 @@ The bottom HUD has two panels:
 | Panel | Content |
 |-------|---------|
 | Left (player) | Life / Satiation / Valence bars, vision strip, tactile strip |
-| Right (controls) | Key bindings, step / death counter, one status line per connected AI |
+| Right (controls) | Key bindings, teleop status, step / death counter, one status line per connected AI |
 
 Each AI status line shows the brain's name (from config), life, valence, and satiation
 in its slot colour.  When multiple agents are connected, each body is labelled with its
-name in the game world.  For full per-agent sensor detail use `monitor.py`.
+name in the game world.  The teleop indicator shows `TELEOP: AI #0` when teleoperation
+is active.  For full per-agent sensor detail use `monitor.py`.
 
 ---
 
@@ -248,10 +250,25 @@ No pretraining. W_out updates on every step using a simple actor-critic rule:
 ```
 rpe             = reward − valence_pred          # reward prediction error
 valence_pred   += critic_lr × rpe               # moving baseline (persists across episodes)
-trace           = trace_decay × trace  +  outer(action, h)
+trace           = trace_decay × trace  +  outer(executed_action, h)
 W_out          += learn_lr × rpe × trace
 W_out          ×= (1 − weight_decay)             # L2 regularisation
 ```
+
+When teleoperation is active, an additional **teacher forcing** gradient is applied:
+
+```
+teacher_err     = executed_action − proposed_action
+W_out          += teacher_force_lr × outer(teacher_err, h)
+b_out          += teacher_force_lr × 0.1 × teacher_err
+```
+
+This directly nudges the readout toward the demonstrated action, combining supervised
+learning (teacher forcing) with reward-based learning (RPE trace) in a single step.
+
+Note: the eligibility trace uses the **executed** action (what the world actually applied),
+not the brain's proposed action. This means that during teleop, the trace correctly
+credits the demonstrated action with any resulting reward.
 
 `reward` is the game's raw valence ∈ [−1, 1]. The eligibility trace gives a ~100-step
 (~1.7 s at 60 fps) credit-assignment window — long enough to connect "food visible
@@ -305,6 +322,7 @@ and changing them invalidates the saved W_out:
 | `assess_every` | 300 | K assessment interval in steps |
 | `log_capacity` | 5000 | Observer log depth (~83 s at 60fps) |
 | `seed` | 42 | Reservoir weight init seed |
+| `teacher_force_lr` | 2e-3 | Supervised readout nudge rate when teleop-teaching is active |
 | `action_feedback` | false | Feed previous (fwd,turn,eat) back into reservoir input |
 | `decision_interval` | 1 | Hold each action for N game frames (1 = every frame, 12 ≈ 5 decisions/sec) |
 | `device` | "cuda" | Compute device |
@@ -437,15 +455,52 @@ python game.py [options]
 
 ---
 
+## Teleoperation
+
+Press `T` in the game window to toggle teleoperation of AI slot 0. While teleop is
+active, your keyboard input (arrow keys, space) directly controls the AI's body instead
+of the brain's output. The brain continues to observe and learn from the demonstrated
+actions.
+
+Teleoperation combines two learning signals:
+
+1. **RPE trace** — the executed (demonstrated) action is credited with any resulting
+   reward via the normal eligibility trace. If you steer the AI toward food and it eats,
+   the positive RPE reinforces "move forward when food is visible."
+2. **Teacher forcing** — a direct supervised gradient nudges W_out toward the
+   demonstrated action at `teacher_force_lr`. This is faster than waiting for reward
+   correlation alone.
+
+```bash
+# Terminal 1 — game with teleop available
+python game.py --connect
+
+# Terminal 2 — brain (auto-learns from teleop demonstrations)
+python wim_brain.py --config brains/configs/wim-64.json
+
+# In the game window: press T to start teleop, use arrows to demonstrate,
+# press T again to hand control back to the brain
+```
+
+The wire protocol carries `executed_action[3]` and `teacher_forced` flag in every
+observation packet, so the brain always knows what action was actually applied to its
+body and whether it came from teleop.
+
+---
+
 ## Tips for Training
 
-**Learning is slow at first** — the brain starts with near-zero W_out and relies
-entirely on exploration noise. At 60 fps, 3600 steps ≈ 1 minute.  Meaningful
-behavioural change typically appears after tens of thousands of steps.
+**Teleop is the fastest teacher** — press `T` and demonstrate the desired behavior
+directly. The brain learns from both the supervised gradient (teacher forcing) and any
+resulting reward. A few seconds of demonstration can teach behaviors that would take
+minutes of autonomous exploration.
 
 **Feed and pat the AI** — each food delivery gives a +0.6 reward spike, each pat
-+0.1. These create strong positive RPEs. Dragging the AI toward food is the fastest
-way to teach food-seeking.
++0.1. These create strong positive RPEs.
+
+**Learning is slow without teleop** — the brain starts with near-zero W_out and relies
+on exploration noise. At 60 fps, 3600 steps ≈ 1 minute.  Meaningful behavioural change
+typically appears after tens of thousands of steps without demonstration.
 
 **Try different seeds** — `seed` in the config changes the reservoir init, which
 changes the resting motor bias. Some seeds explore more naturally than others.
@@ -483,6 +538,9 @@ while True:
     fwd, turn, eat = 1.0, 0.0, 0.0   # your agent here
     client.send_action((fwd, turn, eat))
     obs, reward, done, step = client.recv_obs()
+    # Teleoperation info available via properties:
+    #   client.last_executed_action  — (fwd, turn, eat) actually applied to the body
+    #   client.last_teacher_forced   — True if action came from teleop, not the brain
 ```
 
 Or headless, without ZeroMQ:
@@ -624,10 +682,13 @@ python wim_gpu.py --brain --config brains/configs/wim-64.json
 - **Layout** — toggle golden/centered anchor pattern (standalone)
 - **Anchors** — enable/disable anchor nodes (standalone)
 
-**Scaling across grid sizes:**
+**Scaling across grid sizes** (when `normalize_dynamics: true`, the default):
+
 - Damping scales with grid size: `effective_damping = damping × (30 / grid_size)` so waves
   travel the same proportional distance regardless of resolution.
 - Sub-stepping: `steps = max(1, round(grid_size / 30))` so wave speed is consistent.
+- W_out init scales with grid: `w_scale = 0.01 / sqrt(res_size / 4096)` so the total
+  readout magnitude stays constant across grid sizes.
 
 ```bash
 # Custom window size
@@ -658,10 +719,15 @@ WIM brains use the same config file format as ESN brains. Wave-specific keys:
 | `input_scale` | 1.0 | Amplitude scale for observation injection |
 | `brain_layout` | true | Enable corpus callosum + cross-lateralized input |
 | `anchor_layout` | "golden" | Anchor pattern when brain_layout=false ("golden" or "centered") |
+| `approach_bias` | 0.05 | Forward W_out bias on visual input nodes (structural approach prior) |
+| `turn_bias` | 0.0 | Contralateral turn prior on visual nodes (0 = random turn row) |
+| `normalize_dynamics` | true | Scale damping and substeps with grid size for consistent wave timing |
 | `explore_noise` | 0.3 | Motor noise (much lower than ESN's 90 — wave dynamics are gentler) |
+| `teacher_force_lr` | 2e-3 | Supervised readout nudge rate when teleop-teaching is active |
+| `action_feedback` | false | Feed previous (fwd, turn, eat) back into reservoir input |
 
-All readout/learning parameters (`learn_lr`, `critic_lr`, `trace_decay`, `weight_decay`,
-`eat_threshold`, `decision_interval`, `action_feedback`) are identical to ESN configs.
+All other readout/learning parameters (`learn_lr`, `critic_lr`, `trace_decay`, `weight_decay`,
+`eat_threshold`, `decision_interval`) are identical to ESN configs.
 
 ### WIM vs ESN comparison
 
@@ -675,7 +741,8 @@ All readout/learning parameters (`learn_lr`, `critic_lr`, `trace_decay`, `weight
 | Input injection | Random W_in columns | Spatially placed input nodes |
 | Boundary conditions | None | Anchor nodes + corpus callosum barrier |
 | Emergent behavior | Random motor bias | Bilateral tracking (zero training) |
-| Typical N | 4096–16384 | 4096 (64×64) |
+| Structural priors | None | Approach bias + contralateral turn bias on visual nodes |
+| Typical N | 4096–16384 | 4096 (64×64) to 16384 (128×128) |
 
 ### WIM CLI
 
@@ -826,7 +893,7 @@ systematic comparison across phases.
 |------|-----------|---------|
 | 5555 | game → monitor | PUB broadcast — all agents' obs each step (read-only, no body) |
 | 5556 | brain → game | REQ/REP registration — brain sends its name, game replies with slot+ports |
-| 5557 + 2N | game → brain N | PUSH/PULL obs packet (1061 bytes): step, done, reward, obs[263] |
+| 5557 + 2N | game → brain N | PUSH/PULL obs packet: step, done, reward, executed_action[3], teacher_forced, obs[263] |
 | 5558 + 2N | brain N → game | PUSH/PULL act packet (12 bytes): fwd, turn, eat |
 
 Slot 0 uses ports 5557/5558, slot 1 uses 5559/5560, and so on.

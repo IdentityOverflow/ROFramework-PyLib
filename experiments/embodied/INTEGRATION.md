@@ -240,15 +240,21 @@ its hidden state (RNN, ESN, etc.) when `done` is True.
 
 All values are little-endian.
 
-**OBS packet** (total: 5 + 4 + 263×4 = 1061 bytes):
+**OBS packet** (total: 5 + 4 + 12 + 1 + 263×4 = 1074 bytes):
 
 ```
 offset  size  type          field
 0       4     int32         step_count  (game steps since start)
 4       1     uint8         done        (1 = world just reset)
 5       4     float32       reward      (valence ∈ [-1, 1])
-9       1052  float32[263]  obs
+9       12    float32[3]    executed_action  (fwd, turn, eat actually applied last step)
+21      1     uint8         teacher_forced   (1 = action came from teleop teaching)
+22      1052  float32[263]  obs
 ```
+
+The `executed_action` and `teacher_forced` fields were added for teleoperation support.
+The receiver (`_unpack_obs`) auto-detects legacy packets (1061 bytes) and current packets
+(1074 bytes) for backward compatibility.
 
 **ACT packet** (12 bytes):
 
