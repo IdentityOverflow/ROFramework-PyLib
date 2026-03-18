@@ -759,6 +759,7 @@ def _build_brain(cfg: dict, carrier: bool) -> "EmbodiedBrain":
             "WEIGHT_DECAY":    cfg["weight_decay"],
             "ASSESS_EVERY":    cfg["assess_every"],
             "LOG_CAPACITY":    cfg["log_capacity"],
+            "teacher_force_lr": cfg.get("teacher_force_lr", 0.0),
         },
         device          = cfg["device"],
         action_feedback = cfg["action_feedback"],

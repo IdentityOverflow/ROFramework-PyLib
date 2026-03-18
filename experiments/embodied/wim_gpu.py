@@ -908,7 +908,10 @@ def _setup_brain(args):
     if args.device:
         cfg["device"] = args.device
     dev_str = cfg.get("device", "cuda")
-    _brain = WimBrain(config=cfg, device=dev_str)
+    _brain = WimBrain(
+        config=cfg, device=dev_str,
+        action_feedback=cfg.get("action_feedback", False),
+    )
     _res = _brain._reservoir
 
     # Load weights if requested (--load flag or brain_path from config)
