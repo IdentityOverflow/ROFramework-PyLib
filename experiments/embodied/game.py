@@ -4,6 +4,7 @@
 Controls:
   Arrow keys      move player  (while player is active)
   Space           eat          (player consumes overlapping food)
+  T               toggle teleop of AI slot 0 using keyboard input
   Tab             toggle player on / off
   P               pause / unpause
   R               reset world  (respawns everything)
@@ -384,6 +385,7 @@ def draw_hud(
     font_s: pygame.font.Font,
     font_m: pygame.font.Font,
     slot_names: dict | None = None,
+    teleop_enabled: bool = False,
 ) -> None:
     top = WORLD_H
     pygame.draw.rect(surf, C_HUD_BG, (0, top, SCREEN_W, HUD_HEIGHT))
@@ -411,10 +413,15 @@ def draw_hud(
         True, C_PLAYER if player_on else C_TEXT_DIM),
         (sx, sy))
 
+    teleop_label = "TELEOP: AI #0" if teleop_enabled else "TELEOP: OFF"
+    teleop_color = C_AI_RING if teleop_enabled else C_TEXT_DIM
+    surf.blit(font_m.render(teleop_label, True, teleop_color), (sx + 145, sy))
+
     lines = [
         "[TAB]      toggle player",
         "[↑↓]       move   [←→] turn",
         "[SPACE]    eat food",
+        "[T]        teleop AI #0",
         "[E]        pat AI  (+pleasure)",
         "[F]        feed AI  (push food to mouth)",
         "[P] pause  [R] reset  [ESC] quit",
@@ -442,7 +449,7 @@ def draw_hud(
 
 # ── Input helpers ─────────────────────────────────────────────────────────────
 
-def _handle_events(world: World, paused: bool) -> tuple:
+def _handle_events(world: World, paused: bool, teleop_enabled: bool) -> tuple:
     still_running = True
     reset_flash   = False
     pat           = False
@@ -465,11 +472,13 @@ def _handle_events(world: World, paused: bool) -> tuple:
                 pat = True
             elif event.key == pygame.K_f:
                 feed = True
-    return still_running, paused, reset_flash, pat, feed
+            elif event.key == pygame.K_t:
+                teleop_enabled = not teleop_enabled
+    return still_running, paused, reset_flash, pat, feed, teleop_enabled
 
 
-def _player_action(world: World, paused: bool) -> tuple:
-    if not world.player_active or paused:
+def _manual_action(paused: bool) -> tuple:
+    if paused:
         return (0.0, 0.0, 0.0)
     keys = pygame.key.get_pressed()
     if keys[pygame.K_UP]:
@@ -593,14 +602,18 @@ def main() -> None:
     paused               = False
     death_flash          = 0
     _prev_player_deaths  = 0
+    teleop_enabled       = False
 
     running = True
     while running:
-        running, paused, reset, pat, feed = _handle_events(world, paused)
+        running, paused, reset, pat, feed, teleop_enabled = _handle_events(
+            world, paused, teleop_enabled,
+        )
         if reset:
             death_flash = 0
 
-        player_act = _player_action(world, paused)
+        manual_act = _manual_action(paused)
+        player_act = manual_act if world.player_active else (0.0, 0.0, 0.0)
 
         # Poll for newly connected brains — spawn a body per new slot
         if conn is not None:
@@ -618,8 +631,18 @@ def main() -> None:
         else:
             ai_actions = [(0.0, 0.0, 0.0)] * len(world.agents)
 
+        if teleop_enabled and ai_actions:
+            ai_actions[0] = manual_act
+        teleop_slots = {0} if teleop_enabled and ai_actions else set()
+
         n_agents_before = sum(1 for a in world.agents if a is not None)
-        world.step(ai_actions=ai_actions, player_action=player_act, pat=pat, feed=feed)
+        world.step(
+            ai_actions=ai_actions,
+            player_action=player_act,
+            pat=pat,
+            feed=feed,
+            teleop_slots=teleop_slots,
+        )
 
         # Detect player death: world.reset() clears all agents
         active_after = sum(1 for a in world.agents if a is not None)
@@ -645,7 +668,8 @@ def main() -> None:
         death_flash = _draw_death_flash(screen, death_flash)
         if paused:
             _draw_pause_overlay(screen)
-        draw_hud(screen, world, font_s, font_m, slot_names=names)
+        draw_hud(screen, world, font_s, font_m, slot_names=names,
+                 teleop_enabled=teleop_enabled)
 
         pygame.display.flip()
         clock.tick(FPS)

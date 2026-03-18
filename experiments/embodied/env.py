@@ -245,6 +245,8 @@ class Entity:
         self.tactile = TactileState()
         self.alive   = True
         self.danger_contact_steps: int = 0
+        self.last_action: tuple[float, float, float] = (0.0, 0.0, 0.0)
+        self.last_action_teacher_forced: bool = False
 
     def apply_action(self, forward: float, turn: float) -> None:
         self.heading = (self.heading + turn * self.turn_speed) % (2.0 * np.pi)
@@ -339,6 +341,7 @@ class World:
         pat:  bool = False,
         feed: bool = False,
         ai_actions: Optional[List[Tuple[float, float, float]]] = None,
+        teleop_slots: Optional[set[int]] = None,
     ) -> None:
         if self.paused:
             return
@@ -348,18 +351,29 @@ class World:
             ai_actions = [ai_action] + [(0.0, 0.0, 0.0)] * (len(self.agents) - 1)
 
         pl_fwd, pl_turn, pl_eat = player_action
+        teleop_slots = teleop_slots or set()
 
         for i, agent in enumerate(self.agents):
             if agent is None:
                 continue
-            fwd, turn = (ai_actions[i][0], ai_actions[i][1]) if i < len(ai_actions) else (0.0, 0.0)
-            agent.apply_action(float(np.clip(fwd, -1, 1)), float(np.clip(turn, -1, 1)))
+            if i < len(ai_actions):
+                raw_fwd, raw_turn, raw_eat = ai_actions[i]
+            else:
+                raw_fwd, raw_turn, raw_eat = 0.0, 0.0, 0.0
+            fwd = float(np.clip(raw_fwd, -1, 1))
+            turn = float(np.clip(raw_turn, -1, 1))
+            eat = 1.0 if float(raw_eat) > 0.5 else 0.0
+            agent.last_action = (fwd, turn, eat)
+            agent.last_action_teacher_forced = (i in teleop_slots)
+            agent.apply_action(fwd, turn)
 
         if self.player_active:
-            self.player.apply_action(
-                float(np.clip(pl_fwd,  -1, 1)),
-                float(np.clip(pl_turn, -1, 1)),
-            )
+            p_fwd = float(np.clip(pl_fwd,  -1, 1))
+            p_turn = float(np.clip(pl_turn, -1, 1))
+            p_eat = 1.0 if float(pl_eat) > 0.5 else 0.0
+            self.player.last_action = (p_fwd, p_turn, p_eat)
+            self.player.last_action_teacher_forced = False
+            self.player.apply_action(p_fwd, p_turn)
 
         self._resolve_entities()
 

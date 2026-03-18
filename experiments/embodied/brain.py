@@ -146,6 +146,7 @@ DEFAULT_CONFIG: dict = {
     "eat_threshold":   EAT_THRESHOLD,
     "learn_lr":        LEARN_LR,
     "critic_lr":       CRITIC_LR,
+    "teacher_force_lr": 2e-3,  # supervised readout nudge when teleop-teaching is active
     "trace_decay":     TRACE_DECAY,
     "weight_decay":    WEIGHT_DECAY,
     # RO Framework
@@ -262,12 +263,16 @@ class EmbodiedBrain:
         self._trace        = torch.zeros(3, res_size, dtype=torch.float32, device=self._dev)
         self._valence_pred = 0.0
         self._last_action  = torch.zeros(3,        dtype=torch.float32, device=self._dev)
+        self._executed_action = torch.zeros(3,     dtype=torch.float32, device=self._dev)
         self._last_h       = torch.zeros(res_size, dtype=torch.float32, device=self._dev)
+        self._has_executed_action = False
+        self._teacher_forced = False
 
         self._explore_noise = cfg["EXPLORE_NOISE"]
         self._eat_threshold = cfg["EAT_THRESHOLD"]
         self._learn_lr      = cfg["LEARN_LR"]
         self._critic_lr     = cfg["CRITIC_LR"]
+        self._teacher_force_lr = float(cfg.get("teacher_force_lr", 0.0))
         self._trace_decay   = cfg["TRACE_DECAY"]
         self._weight_decay  = cfg["WEIGHT_DECAY"]
         self.learning_enabled = True
@@ -310,7 +315,8 @@ class EmbodiedBrain:
         (fwd, turn, eat) : three floats
         """
         obs_t = torch.from_numpy(obs.astype(np.float32)).to(self._dev)
-        x     = torch.cat([obs_t, self._last_action]) if self._action_feedback else obs_t
+        prev_action = self._executed_action if self._has_executed_action else self._last_action
+        x = torch.cat([obs_t, prev_action]) if self._action_feedback else obs_t
 
         h = self._reservoir.step(x)
         self._last_h.copy_(h)
@@ -345,11 +351,27 @@ class EmbodiedBrain:
             return
         rpe = reward - self._valence_pred
         self._valence_pred += self._critic_lr * rpe
+        trace_action = self._executed_action if self._has_executed_action else self._last_action
         self._trace.mul_(self._trace_decay).add_(
-            torch.outer(self._last_action, self._last_h)
+            torch.outer(trace_action, self._last_h)
         )
         self.W_out.add_(self._trace, alpha=self._learn_lr * rpe)
+        if self._teacher_forced and self._teacher_force_lr > 0.0:
+            teacher_err = self._executed_action - self._last_action
+            self.W_out.add_(torch.outer(teacher_err, self._last_h), alpha=self._teacher_force_lr)
+            self.b_out.add_(teacher_err, alpha=self._teacher_force_lr * 0.1)
         self.W_out.mul_(1.0 - self._weight_decay)
+
+    @torch.no_grad()
+    def set_executed_action(self, action, teacher_forced: bool = False) -> None:
+        """Record the action the world actually executed last step."""
+        if isinstance(action, torch.Tensor):
+            src = action.to(self._dev, dtype=torch.float32)
+        else:
+            src = torch.tensor(action, dtype=torch.float32, device=self._dev)
+        self._executed_action.copy_(src)
+        self._has_executed_action = True
+        self._teacher_forced = bool(teacher_forced)
 
     # ── Episode reset ───────────────────────────────────────────────────────────
 
@@ -359,7 +381,10 @@ class EmbodiedBrain:
         self._reservoir.reset()
         self._trace.zero_()
         self._last_action.zero_()
+        self._executed_action.zero_()
         self._last_h.zero_()
+        self._has_executed_action = False
+        self._teacher_forced = False
 
     # ── Knowledge tracker ───────────────────────────────────────────────────────
 
@@ -571,6 +596,11 @@ def run_connected(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
         obs, reward, done, _ = client.recv_obs()
         _t = time.monotonic()
         while True:
+            if hasattr(brain, "set_executed_action"):
+                brain.set_executed_action(
+                    client.last_executed_action,
+                    teacher_forced=client.last_teacher_forced,
+                )
             if step % decision_interval == 0:
                 fwd, turn, eat = brain.forward(obs)
             brain.learn(reward)
@@ -657,6 +687,8 @@ def run_headless(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
                 brain.reset_state()
                 episodes += 1
             world.step(ai_action=(fwd, turn, eat))
+            if hasattr(brain, "set_executed_action"):
+                brain.set_executed_action((fwd, turn, eat), teacher_forced=False)
 
             reward_sum += reward
             eat_count  += int(eat > 0.5)

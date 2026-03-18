@@ -43,6 +43,8 @@ OBS packet layout  (struct, little-endian):
     int32   step_count
     uint8   done  (1 = world just reset)
     float32 reward  (= current valence, ∈ [-1, 1])
+    float32 executed_action[3]  (= action actually applied to this body last step)
+    uint8   teacher_forced  (1 = action came from teleop teaching)
     float32 obs[OBS_SIZE]   (all values ∈ [0, 1])
 
 ACT packet layout:
@@ -91,18 +93,51 @@ def _pack_obs(world: World, entity) -> bytes:
     """Serialise entity state into a wire packet."""
     obs    = world.get_observation(entity)
     reward = float(entity.meters.valence)
+    executed = tuple(float(v) for v in getattr(entity, "last_action", _DEFAULT_ACTION))
+    teacher_forced = 1 if getattr(entity, "last_action_teacher_forced", False) else 0
     done   = 0                                   # reset is detected by step_count drop
     header = struct.pack(_OBS_HEADER_FMT, world.step_count, done)
-    return header + struct.pack("<f", reward) + obs.tobytes()
+    return (header + struct.pack("<f", reward) + _pack_action(*executed)
+            + struct.pack("<B", teacher_forced) + obs.tobytes())
 
 
-def _unpack_obs(data: bytes) -> Tuple[np.ndarray, float, bool, int]:
-    """Deserialise a wire packet into (obs, reward, done, step)."""
+def _unpack_obs(
+    data: bytes,
+) -> Tuple[np.ndarray, float, bool, int, Tuple[float, float, float], bool]:
+    """Deserialise legacy or current wire packets.
+
+    Supported layouts after the common header:
+      1. reward + obs
+      2. reward + executed_action + obs
+      3. reward + executed_action + teacher_forced + obs
+    """
     step, done_flag = struct.unpack_from(_OBS_HEADER_FMT, data, 0)
     reward = struct.unpack_from("<f", data, _OBS_HEADER_SIZE)[0]
-    obs_start = _OBS_HEADER_SIZE + 4
+    payload_start = _OBS_HEADER_SIZE + 4
+    payload_size = len(data) - payload_start
+    obs_bytes = OBS_SIZE * 4
+
+    executed_action = _DEFAULT_ACTION
+    teacher_forced = False
+
+    if payload_size == obs_bytes:
+        obs_start = payload_start
+    elif payload_size == _ACT_SIZE + obs_bytes:
+        executed_action = struct.unpack_from(_ACT_FMT, data, payload_start)
+        obs_start = payload_start + _ACT_SIZE
+    elif payload_size == _ACT_SIZE + 1 + obs_bytes:
+        executed_action = struct.unpack_from(_ACT_FMT, data, payload_start)
+        teacher_forced = bool(struct.unpack_from("<B", data, payload_start + _ACT_SIZE)[0])
+        obs_start = payload_start + _ACT_SIZE + 1
+    else:
+        raise ValueError(
+            f"Unexpected observation packet size {len(data)} bytes "
+            f"(payload {payload_size}; expected {obs_bytes}, "
+            f"{_ACT_SIZE + obs_bytes}, or {_ACT_SIZE + 1 + obs_bytes})"
+        )
+
     obs = np.frombuffer(data[obs_start:], dtype=np.float32).copy()
-    return obs, float(reward), bool(done_flag), int(step)
+    return obs, float(reward), bool(done_flag), int(step), executed_action, teacher_forced
 
 
 def _pack_action(fwd: float, turn: float, eat: float) -> bytes:
@@ -425,6 +460,8 @@ class AgentConnector:
         self._obs_sock: zmq.Socket | None = None
         self._act_sock: zmq.Socket | None = None
         self._slot_id: int = 0
+        self._last_executed_action: Tuple[float, float, float] = _DEFAULT_ACTION
+        self._last_teacher_forced: bool = False
 
     def connect(
         self,
@@ -486,7 +523,10 @@ class AgentConnector:
         if not self._obs_sock.poll(timeout_ms):
             raise zmq.Again("No observation received within timeout")
         data = self._obs_sock.recv()
-        return _unpack_obs(data)
+        obs, reward, done, step, executed_action, teacher_forced = _unpack_obs(data)
+        self._last_executed_action = executed_action
+        self._last_teacher_forced = teacher_forced
+        return obs, reward, done, step
 
     def send_action(
         self,
@@ -532,6 +572,16 @@ class AgentConnector:
     def slot_id(self) -> int:
         """Slot index assigned by the game during registration."""
         return self._slot_id
+
+    @property
+    def last_executed_action(self) -> Tuple[float, float, float]:
+        """Most recent action reported by the game as executed for this body."""
+        return self._last_executed_action
+
+    @property
+    def last_teacher_forced(self) -> bool:
+        """Whether the most recent executed action came from teleop teaching."""
+        return self._last_teacher_forced
 
 
 # ── Monitor connector (read-only, no body spawned) ────────────────────────────

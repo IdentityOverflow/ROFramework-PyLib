@@ -997,12 +997,17 @@ def _brain_tick():
     if _client is None:
         return
     obs, reward, done, _ = _client.recv_obs()
+    if hasattr(_brain, "set_executed_action"):
+        _brain.set_executed_action(
+            _client.last_executed_action,
+            teacher_forced=_client.last_teacher_forced,
+        )
     if _sensors_on:
         fwd, turn, eat = _brain.forward(obs)
         _brain.learn(reward)
     else:
         # Sensors severed: step wave physics only, compute action from current state
-        _res.step_wave()
+        _res.step_wave(getattr(_brain, "_wave_substeps", 1))
         with torch.no_grad():
             h = torch.tanh(_res._disp)
             raw = _brain.W_out @ h + _brain.b_out

@@ -363,6 +363,11 @@ def run_connected_viz(brain: EmbodiedBrain, viz: BrainViz,
     try:
         obs, reward, done, _ = client.recv_obs()
         while True:
+            if hasattr(brain, "set_executed_action"):
+                brain.set_executed_action(
+                    client.last_executed_action,
+                    teacher_forced=client.last_teacher_forced,
+                )
             if st["step"] % decision_interval == 0:
                 fwd, turn, eat = brain.forward(obs)
             rpe = reward - brain._valence_pred
@@ -416,6 +421,8 @@ def run_headless_viz(brain: EmbodiedBrain, viz: BrainViz,
                 brain.reset_state()
                 st["episodes"] += 1
             world.step(ai_action=(fwd, turn, eat))
+            if hasattr(brain, "set_executed_action"):
+                brain.set_executed_action((fwd, turn, eat), teacher_forced=False)
 
             _tick(st, fwd, turn, eat, reward)
             viz.update(fwd, turn, reward, rpe)

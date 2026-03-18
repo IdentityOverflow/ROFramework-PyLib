@@ -44,6 +44,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from typing import Optional
@@ -111,11 +112,13 @@ WAVE_DEFAULT_CONFIG: dict = {
     "brain_layout":     True,       # corpus callosum + cross-lateralized sensory placement
     "approach_bias":    0.05,       # forward W_out bias on visual nodes (0 = no bias)
     "turn_bias":        0.0,        # contralateral turn prior on visual nodes (0 = random turn row)
+    "normalize_dynamics": True,     # scale damping/substeps with grid size for similar wave timing
     # Readout / learning  (same keys as brain.py for config compatibility)
     "explore_noise":    0.3,        # wave brain default — lower than ESN's 90
     "eat_threshold":    EAT_THRESHOLD,
     "learn_lr":         LEARN_LR,
     "critic_lr":        CRITIC_LR,
+    "teacher_force_lr": 2e-3,      # supervised readout nudge when teleop-teaching is active
     "trace_decay":      TRACE_DECAY,
     "weight_decay":     WEIGHT_DECAY,
     # RO Framework
@@ -285,6 +288,8 @@ def _brain_input_layout(grid_size, input_dim=263, anchor_mask=None):
 
     # Central / deep (meters): near barrier, y ~ 35-45%
     my_y = grid_size * 0.38
+    # Anterior motor/efference band for optional action feedback
+    ay0, ay1 = max(1.0, grid_size * 0.08), max(2.0, grid_size * 0.18)
 
     # ── Generate target positions for each input channel ──
     targets = []
@@ -331,6 +336,18 @@ def _brain_input_layout(grid_size, input_dim=263, anchor_mask=None):
     targets.append((mid - margin - 1, my_y))       # life
     targets.append((mid + margin + 1, my_y))       # satiation
     targets.append((mid - margin - 1, my_y + 2))   # valence
+
+    # --- Optional action feedback (obs[263:]) ---
+    # Previous (fwd, turn, eat) live in an anterior "motor/efference" strip near
+    # the midline so both hemispheres can couple current sensation with recent action.
+    extra = input_dim - len(targets)
+    if extra < 0:
+        raise ValueError(f"Input layout overfilled: expected {input_dim}, got {len(targets)}")
+    if extra > 0:
+        eff_x0 = float(mid - max(2, margin + 1))
+        eff_x1 = float(mid + max(2, margin + 1))
+        eff_targets = _spread_in_region(extra, eff_x0, eff_x1, ay0, ay1)
+        targets.extend(eff_targets)
 
     assert len(targets) == input_dim, f"Expected {input_dim} targets, got {len(targets)}"
 
@@ -475,12 +492,13 @@ class WaveReservoir:
             sum_nb_e[self._is_anchor] * self._nb_inv_count[self._is_anchor] * 0.5
         ).clamp_(0, 1)
 
-    def step(self, x: torch.Tensor) -> torch.Tensor:
+    def step(self, x: torch.Tensor, steps: int = 1) -> torch.Tensor:
         """Advance one step: inject input, run spring physics, return state.
 
         Parameters
         ----------
         x : (input_dim,) torch.float32 tensor on device
+        steps : Number of internal physics substeps after one input injection.
 
         Returns
         -------
@@ -489,13 +507,15 @@ class WaveReservoir:
         # Inject observation as wave kicks at designated input nodes
         self._disp[self._input_nodes] += self._input_scale * x[:self._n_in]
 
-        self._physics_step()
+        for _ in range(max(1, int(steps))):
+            self._physics_step()
 
         return torch.tanh(self._disp)
 
-    def step_wave(self) -> None:
+    def step_wave(self, steps: int = 1) -> None:
         """Advance one physics step with no input injection (standalone wave mode)."""
-        self._physics_step()
+        for _ in range(max(1, int(steps))):
+            self._physics_step()
 
     @property
     def state(self) -> np.ndarray:
@@ -562,6 +582,10 @@ class WimBrain:
         else:
             damping = reverb_to_damping(REVERB_DEFAULT)
 
+        normalize_dynamics = bool(cfg.get("normalize_dynamics", True))
+        self._wave_substeps = max(1, round(grid_size / REF_GRID)) if normalize_dynamics else 1
+        effective_damping = damping * (REF_GRID / grid_size) if normalize_dynamics else damping
+
         # ── Wave reservoir ──────────────────────────────────────────────────
         brain_layout = cfg.get("brain_layout", True)
 
@@ -578,7 +602,7 @@ class WimBrain:
                 grid_size     = grid_size,
                 input_dim     = input_dim,
                 tension       = cfg["tension"],
-                damping       = damping,
+                damping       = effective_damping,
                 noise_scale   = cfg["noise_scale"],
                 input_scale   = cfg["input_scale"],
                 anchors       = False,
@@ -593,7 +617,7 @@ class WimBrain:
                 grid_size     = grid_size,
                 input_dim     = input_dim,
                 tension       = cfg["tension"],
-                damping       = damping,
+                damping       = effective_damping,
                 noise_scale   = cfg["noise_scale"],
                 input_scale   = cfg["input_scale"],
                 anchors       = True,
@@ -640,14 +664,21 @@ class WimBrain:
         self._trace        = torch.zeros(3, res_size, dtype=torch.float32, device=self._dev)
         self._valence_pred = 0.0
         self._last_action  = torch.zeros(3,        dtype=torch.float32, device=self._dev)
+        self._executed_action = torch.zeros(3,     dtype=torch.float32, device=self._dev)
         self._last_h       = torch.zeros(res_size, dtype=torch.float32, device=self._dev)
+        self._has_executed_action = False
+        self._teacher_forced = False
 
         self._explore_noise   = float(cfg["explore_noise"])
         self._eat_threshold   = float(cfg["eat_threshold"])
         self._learn_lr        = float(cfg["learn_lr"])
         self._critic_lr       = float(cfg["critic_lr"])
+        self._teacher_force_lr = float(cfg.get("teacher_force_lr", 0.0))
         self._trace_decay     = float(cfg["trace_decay"])
         self._weight_decay    = float(cfg["weight_decay"])
+        self._normalize_dynamics = normalize_dynamics
+        self._base_damping       = damping
+        self._effective_damping  = effective_damping
         self.learning_enabled = True
         self._last_obs: Optional[np.ndarray] = None
 
@@ -673,9 +704,10 @@ class WimBrain:
         """Advance one step.  obs: (263,) float32.  Returns (fwd, turn, eat)."""
         x = torch.from_numpy(obs.astype(np.float32)).to(self._dev)
         if self._action_feedback:
-            x = torch.cat([x, self._last_action])
+            prev_action = self._executed_action if self._has_executed_action else self._last_action
+            x = torch.cat([x, prev_action])
 
-        h = self._reservoir.step(x)                        # torch tensor on device
+        h = self._reservoir.step(x, steps=self._wave_substeps)  # torch tensor on device
         self._last_h.copy_(h)
 
         raw   = self.W_out @ h + self.b_out
@@ -707,11 +739,27 @@ class WimBrain:
             return
         rpe = reward - self._valence_pred
         self._valence_pred += self._critic_lr * rpe
+        trace_action = self._executed_action if self._has_executed_action else self._last_action
         self._trace.mul_(self._trace_decay).add_(
-            torch.outer(self._last_action, self._last_h)
+            torch.outer(trace_action, self._last_h)
         )
         self.W_out.add_(self._trace, alpha=self._learn_lr * rpe)
+        if self._teacher_forced and self._teacher_force_lr > 0.0:
+            teacher_err = self._executed_action - self._last_action
+            self.W_out.add_(torch.outer(teacher_err, self._last_h), alpha=self._teacher_force_lr)
+            self.b_out.add_(teacher_err, alpha=self._teacher_force_lr * 0.1)
         self.W_out.mul_(1.0 - self._weight_decay)
+
+    @torch.no_grad()
+    def set_executed_action(self, action, teacher_forced: bool = False) -> None:
+        """Record the action the world actually executed last step."""
+        if isinstance(action, torch.Tensor):
+            src = action.to(self._dev, dtype=torch.float32)
+        else:
+            src = torch.tensor(action, dtype=torch.float32, device=self._dev)
+        self._executed_action.copy_(src)
+        self._has_executed_action = True
+        self._teacher_forced = bool(teacher_forced)
 
     # ── Episode reset ────────────────────────────────────────────────────────────
 
@@ -720,7 +768,10 @@ class WimBrain:
         self._reservoir.reset()
         self._trace.zero_()
         self._last_action.zero_()
+        self._executed_action.zero_()
         self._last_h.zero_()
+        self._has_executed_action = False
+        self._teacher_forced = False
 
     # ── Knowledge tracker ────────────────────────────────────────────────────────
 
@@ -785,7 +836,8 @@ def _resolve_config(args) -> dict:
             cfg_path = auto
             print(f"  [config] auto-loaded from {auto}")
     if cfg_path:
-        raw = load_config(cfg_path)
+        with open(cfg_path) as f:
+            raw = {k: v for k, v in json.load(f).items() if not k.startswith("_")}
         # Merge: WAVE_DEFAULT_CONFIG provides defaults for wave-specific keys
         cfg = {**WAVE_DEFAULT_CONFIG, **raw}
     else:
@@ -859,7 +911,9 @@ examples:
           f"({n_input} nodes receive direct obs injection)")
     print(f"  grid:           {grid_size}×{grid_size} = {res_size} nodes")
     reverb = cfg.get("reverb", REVERB_DEFAULT)
-    print(f"  tension:        {cfg['tension']}   reverb: {reverb}  (damping: {reverb_to_damping(reverb):.4f})")
+    print(f"  tension:        {cfg['tension']}   reverb: {reverb}  "
+          f"(damping: {brain._effective_damping:.4f}, substeps: {brain._wave_substeps}, "
+          f"normalized: {brain._normalize_dynamics})")
     print(f"  noise_scale:    {cfg['noise_scale']}   input_scale: {cfg['input_scale']}")
     print(f"  anchor_layout:  {cfg['anchor_layout']}")
     print(f"  explore_noise:  {cfg['explore_noise']}")
