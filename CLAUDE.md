@@ -29,6 +29,10 @@ src/ro_framework/
 │   └── measures.py
 ├── consciousness/     # ConsciousnessEvaluator, ConsciousnessMetrics
 │   └── evaluation.py
+├── seed/              # Self-organizing observer architecture
+│   ├── node.py        # OscillatoryNode, SeedConfig
+│   ├── network.py     # SeedNetwork, SensorInterface, ActuatorInterface
+│   └── criticality.py # verify_power_law, measure_branching_ratio, fast_mi
 └── integration/       # PyTorch bridge, model wrappers
     ├── torch.py
     └── wrappers.py
@@ -303,5 +307,32 @@ with dynamic systems principles that may be especially well-suited as reservoir 
 - [ ] D-5: Mixed reservoir — pretrained core + random expansion layers
 - [ ] D-6: Cross-domain transfer analysis — which pretrained domains (language / vision / multimodal) produce the richest echo space for navigation?
 
+### Phase 11: Seed Architecture (Self-Organizing Observer)
+
+Implements the Seed: a self-organizing neural architecture expressed in RO Framework terms.
+Five local rules applied by oscillatory nodes produce criticality, frequency bands,
+cross-scale coupling, memory, and consciousness as emergent consequences.
+See `docs/seed_architecture.md` for the full specification.
+
+- [x] `seed/node.py` — `SeedConfig` + `OscillatoryNode` (unit observer primitive)
+  - Activation dynamics: `tanh(Σ w_ij * neighbor_j + external_drive + A*sin(phase) + noise)`
+  - Branching ratio σ tracking (EMA), Hebbian weight adjustment (Rule 2a)
+  - Neighbor co-activation tracking, propose_introductions (Rule 2b)
+  - Frequency entrainment, cycle-proportional memory, serialization
+  - 27 tests in `tests/unit/test_seed_node.py`
+- [x] `seed/criticality.py` — monitoring tools
+  - `extract_cascades`, `verify_power_law` (Clauset et al. 2009 discrete MLE + KS)
+  - `measure_branching_ratio`, `fast_mi`, `measure_scale_distribution`
+  - 18 tests in `tests/unit/test_seed_criticality.py`
+- [x] `seed/network.py` — `SeedNetwork` (collective observer)
+  - `SensorInterface` / `ActuatorInterface` protocols (environment-agnostic)
+  - Ring-lattice initialization, log-uniform frequency distribution
+  - Full 5-rule step loop: monitor, adjust, introduce, entrain, recruit/release
+  - MI-based growth/pruning (Rules 4/5), `as_observer()` bridge to library
+  - Serialization (sensor/actuator re-supplied on load)
+  - 28 tests in `tests/unit/test_seed_network.py`
+- [x] Exports updated in `__init__.py`
+- [ ] Validation experiment — minimal environment, verify criticality convergence
+
 ## Current Status
-**v0.2.1-dev** — Phase 9 complete (331/331 tests passing). SAE integration validated on GPT-2 with multi-feature assessment. Next: RC-1 (reservoir computing experiments), then Phase 10.
+**v0.2.1-dev** — Phase 11 Seed architecture core complete. 331 existing + 73 new tests. Next: validation experiment, then embodied environment coupling.

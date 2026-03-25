@@ -161,15 +161,17 @@ ROFramework-PyLib/
 │   ├── correlation/           #   Pearson, MI, temporal, causal detection
 │   ├── consciousness/         #   ConsciousnessEvaluator, ConsciousnessMetrics
 │   └── integration/           #   PyTorch bridge, wrappers, SAE, activation analysis
-├── tests/                     # Unit tests (331 tests)
+├── tests/                     # Unit tests (417 tests)
 ├── examples/                  # Library usage demos (01-07)
 ├── experiments/               # Research experiments
+│   ├── seed/                  #   Phase 11: self-organizing observer (criticality, capacity, growth)
 │   ├── grokking/              #   Phase 8: knowledge trajectories, denoising, K-guided training
 │   ├── sae/                   #   Phase 9: GPT-2 + SAE knowledge assessment
 │   ├── reservoir/             #   Direction C: reservoir computing (RC-1 completed)
 │   └── embodied/              #   Pygame environment with ZeroMQ connector for live AI agents
 └── docs/                      # Documentation
     ├── ro_framework.md        #   Theoretical framework (1500+ lines)
+    ├── seed_architecture.md   #   Seed specification (self-organizing observer)
     ├── organic_cognitive_architecture_oca.md  # OCA multi-reservoir design
     └── research/              #   Research findings (mirrors experiments/)
         ├── grokking.md
@@ -236,6 +238,29 @@ python monitor.py
 The included `brain.py` is a single-reservoir ESN with RO Framework integration: 263-dim observations drive a frozen random reservoir; only the readout `W_out` is trained via RPE-gated eligibility traces. Brain name is shown in the game window (above the entity's head) and in the monitor. If `brain_path` in the config already exists, the checkpoint is loaded automatically.
 
 For custom agents or headless training, use `AgentConnector` directly or instantiate `World` without a display. See [experiments/embodied/INTEGRATION.md](experiments/embodied/INTEGRATION.md) for the full wire protocol and [experiments/embodied/README.md](experiments/embodied/README.md) for the brain config reference.
+
+### Seed Architecture — Self-Organizing Observer
+
+The Seed is a self-organizing neural architecture where five local rules applied by oscillatory nodes produce criticality, frequency bands, and adaptive growth as emergent consequences. Each node is simultaneously a degree of freedom (one activation value) and a unit observer (monitoring its neighborhood's branching ratio).
+
+Core mechanism: nodes operate in a **sparse regime** (threshold >> drive + noise) where activations propagate through coupling, not common drive. A single Hebbian rule — `Δw = lr * act_i * act_j * (1 - σ)` — self-regulates the network to criticality (σ → 1). The network recruits new nodes when overloaded (supercritical) and entrains frequencies toward active signals.
+
+Validated properties:
+
+- **Self-organized criticality**: σ converges to ~1.0 with power-law cascade distributions
+- **Computational capacity**: 64-node reservoir discriminates 8 frequency classes at 71% (5.5x above chance) with a linear readout — no trained internal weights
+- **Adaptive growth**: network grows from 16 → 25 nodes when signal complexity increases, stabilizes when capacity is sufficient, does not grow during silence
+
+```python
+from ro_framework.seed.network import SeedNetwork
+from ro_framework.seed.node import SeedConfig
+
+config = SeedConfig(n_init=64, k_neighbors=6)
+net = SeedNetwork(config, sensor=my_sensor, actuator=my_actuator)
+output = net.step(external_input)  # runs all 5 rules per timestep
+```
+
+See [docs/seed_architecture.md](docs/seed_architecture.md) for the specification and [experiments/seed/](experiments/seed/) for validation experiments.
 
 ### Reservoir Computing Research
 
@@ -319,6 +344,17 @@ Primary target: **LFM-2** (Liquid AI) — multimodal tiny vision variants ground
 - D-5: Mixed reservoir — pretrained core + random expansion layers
 - D-6: Cross-domain transfer — which pretrained domains (language / vision / multimodal) produce the richest echo space for navigation?
 
+### Phase 11: Seed Architecture (Self-Organizing Observer)
+
+A self-organizing neural architecture that grows its own structure. Core mechanism validated, adaptive growth working.
+
+- Criticality validation — σ → 1.0 under independent and correlated drives, power-law cascades confirmed
+- Computational capacity — reservoir discriminates 2-8 frequency classes with linear readout (no trained internal weights)
+- Adaptive growth — σ-based recruitment with activity gating; frequency entrainment repurposes nodes
+- Next: coupling to the embodied environment as the sensor/actuator interface
+
+See [experiments/seed/](experiments/seed/) for details.
+
 ### Research directions
 
 - Causal vs. correlational knowledge distinction
@@ -348,8 +384,10 @@ Completed (Phase 8):
 - [Grokking & Feature Discovery](docs/research/grokking.md) — Phase 8 experiments: knowledge trajectories, denoising, K-guided training
 - [SAE Knowledge Assessment](docs/research/sae.md) — Phase 9 experiments: GPT-2 + SAE knowledge profiles
 - [Reservoir Computing](docs/research/reservoir.md) — Direction C: RO-RC alignment and RC research roadmap
+- [Seed Architecture](docs/seed_architecture.md) — Self-organizing observer specification
+- [Seed Experiments](experiments/seed/) — Criticality, computational capacity, and self-scaling validation
 - [Examples](examples/) — Library usage demos (01-07)
-- [Experiments](experiments/) — Research experiment scripts (grokking, SAE, reservoir)
+- [Experiments](experiments/) — Research experiment scripts (seed, grokking, SAE, reservoir)
 
 ## License
 

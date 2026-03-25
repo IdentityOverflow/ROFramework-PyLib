@@ -43,6 +43,11 @@ from ro_framework.consciousness.evaluation import (
     ConsciousnessMetrics,
 )
 
+# Seed architecture exports
+from ro_framework.seed.node import OscillatoryNode, SeedConfig
+from ro_framework.seed.network import SeedNetwork
+from ro_framework.seed.criticality import verify_power_law, measure_branching_ratio
+
 __all__ = [
     "__version__",
     # Core
@@ -68,4 +73,10 @@ __all__ = [
     # Consciousness
     "ConsciousnessEvaluator",
     "ConsciousnessMetrics",
+    # Seed
+    "OscillatoryNode",
+    "SeedConfig",
+    "SeedNetwork",
+    "verify_power_law",
+    "measure_branching_ratio",
 ]
