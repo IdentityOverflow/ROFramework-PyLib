@@ -938,7 +938,24 @@ The spec uses MI-based pruning: `I(n_i ; D_rest ∪ D_external) < θ_prune`. The
 
 This is arguably correct biological behavior: neurons are reassigned, not discarded. The network grows when overloaded and repurposes excess capacity rather than pruning it.
 
-### 9.6 Upper Bound Default
+### 9.6 Bandwidth-Limited Frequency Entrainment
+
+The spec describes frequency entrainment as drifting toward coupling-weighted neighborhood mean (Section 4.3). The original implementation did exactly this — and all nodes converged toward a global mean frequency, preventing band formation.
+
+**The fix:** Weight entrainment by resonance proximity. A node is only pulled by neighbors whose frequency is within ~1 octave of its own:
+
+```
+log_self = log(frequency)
+for each neighbor:
+    resonance = exp(-0.5 * ((log_self - log(neighbor_freq)) / bandwidth)^2)
+    weight = coupling_strength * resonance
+```
+
+This creates local basins of attraction in frequency space. Nodes near the slow signal entrain to each other without being pulled toward distant fast nodes, and vice versa. The result: distinct frequency bands form around environmental timescales with a clear gap between them.
+
+This bandwidth limit is physically motivated — in biological neural oscillators, entrainment has limited range (an Arnold tongue). A neuron oscillating at 5 Hz cannot phase-lock to a 100 Hz signal.
+
+### 9.7 Upper Bound Default
 
 The spec says `upper_bound: None = environment-coupled`. The implementation defaults to `max_nodes = 16384`. An unbounded default risks exhausting machine memory if recruitment runs away due to a misconfigured environment. 16384 nodes is sufficient for self-organization experiments while fitting comfortably in memory on a standard PC.
 
@@ -957,12 +974,13 @@ The spec says `upper_bound: None = environment-coupled`. The implementation defa
 | No growth during silence | Confirmed (activity gate) | 03 |
 | Frequency entrainment | Confirmed (freq range converges) | 03 |
 | Node release | Rarely triggers — nodes repurposed instead | 03 |
-| Cross-scale coupling | Not yet tested | |
-| Frequency band formation | Not yet tested | |
+| Frequency band formation | Confirmed (bimodal clustering around signal timescales) | 04 |
+| Cross-scale coupling (PAC) | Confirmed (moderate, MI=0.064) | 04 |
+| Bandwidth-limited entrainment | Required for band formation (Section 9.6) | 04 |
 | Consciousness (M_self) | Not yet tested | |
 
 ---
 
-*Document version: 4.0*
-*Updated with implementation experience from Phase 11 validation experiments.*
+*Document version: 4.1*
+*Updated with implementation experience from Phase 11 validation experiments (01-04).*
 *Implementation: `ro_framework.seed` — `OscillatoryNode`, `SeedNetwork`, `verify_power_law`, `measure_branching_ratio`, `measure_scale_distribution`.*

@@ -363,7 +363,13 @@ class OscillatoryNode:
     def update_frequency(
         self, neighbor_frequencies: Dict[str, float]
     ) -> None:
-        """Drift frequency toward coupling-weighted neighborhood mean."""
+        """Drift frequency toward coupling-weighted neighborhood mean.
+
+        Entrainment is bandwidth-limited: a node is only pulled by
+        neighbors whose frequency is within ~1 octave of its own.
+        This prevents slow and fast nodes from collapsing toward a
+        global mean, allowing distinct frequency bands to form.
+        """
         if not neighbor_frequencies:
             return
 
@@ -372,18 +378,25 @@ class OscillatoryNode:
         freq_min = cfg.freq_range[0] if cfg else 0.01
         freq_max = cfg.freq_range[1] if cfg else 1.0
 
-        total_weight = sum(
-            abs(self.coupling_weights.get(nid, 0.0))
-            for nid in neighbor_frequencies
-        )
+        # Bandwidth-limited: weight by resonance proximity (log-frequency)
+        # Neighbors within ~1 octave have full pull; distant ones are ignored
+        log_self = math.log(max(self.frequency, 1e-6))
+        bandwidth = 1.0  # ~1 octave in log-frequency space
+
+        total_weight = 0.0
+        weighted_freq = 0.0
+        for nid, f in neighbor_frequencies.items():
+            coupling = abs(self.coupling_weights.get(nid, 0.0))
+            log_f = math.log(max(f, 1e-6))
+            resonance = math.exp(-0.5 * ((log_self - log_f) / bandwidth) ** 2)
+            w = coupling * resonance
+            total_weight += w
+            weighted_freq += w * f
+
         if total_weight < 1e-10:
             return
 
-        weighted_freq = sum(
-            abs(self.coupling_weights.get(nid, 0.0)) * f
-            for nid, f in neighbor_frequencies.items()
-        ) / total_weight
-
+        weighted_freq /= total_weight
         self.frequency += eta * (weighted_freq - self.frequency)
         self.frequency = float(np.clip(self.frequency, freq_min, freq_max))
 

@@ -100,7 +100,44 @@ When a node isn't firing, its σ decays: `σ *= (1 - α)`. Without this, inactiv
 The original spec used mutual information between external input and internal activations to trigger recruitment. In practice, MI estimation between raw inputs and node activations was unreliable — the sensor transforms inputs into drives, so measuring MI on raw inputs measures the wrong thing. The supercritical σ trigger is simpler and more direct: if the network is overloaded (σ > 1), it needs more capacity.
 
 ### Release as adaptive reuse
+
 Nodes recruited for one signal don't go silent when that signal stops — coupling keeps them somewhat active, and frequency entrainment drifts them toward whatever signal IS present. This is arguably more biologically realistic than pruning: neurons get reassigned, not discarded.
+
+### Bandwidth-limited entrainment
+
+The original entrainment rule drifted each node toward the coupling-weighted mean of ALL neighbor frequencies. This caused all nodes to converge toward a single global mean — no bands formed. The fix: weight entrainment by resonance proximity (~1 octave bandwidth in log-frequency space). A node is only pulled by neighbors close to its own frequency. This creates local basins of attraction, allowing distinct bands to form.
+
+### 04 — Frequency Band Formation & Cross-Scale Coupling
+
+**Question**: Does the Seed produce distinct frequency bands when exposed to multi-timescale input? Do slow nodes model fast-node behavior?
+
+**Method**: 64 nodes, 20k steps. Drive signal: slow envelope (0.05 Hz) amplitude-modulating a fast carrier (0.3 Hz). This presents two distinct timescales.
+
+**Results** (20k steps, bandwidth-limited entrainment):
+
+Frequency distribution after entrainment:
+
+| Region | Freq range | Nodes | Signal |
+| --- | --- | --- | --- |
+| Low band | 0.03-0.08 Hz | 39 | Near slow (0.05 Hz) |
+| Gap | 0.08-0.17 Hz | 0 | Empty |
+| High band | 0.17-0.51 Hz | 25 | Near fast (0.30 Hz) |
+
+Cross-scale coupling metrics:
+
+| Metric | Value | Interpretation |
+| --- | --- | --- |
+| Phase-amplitude coupling (MI) | 0.064 | Moderate — slow phase modulates fast amplitude |
+| Slow-fast variance correlation | -0.17 | Anticorrelated (correct for AM signal) |
+| Direct band correlation | 0.039 | Near zero — bands operate independently |
+
+**Key findings**:
+
+- Frequency bands form spontaneously around environmental timescales (bimodal clustering with clear gap)
+- Bandwidth-limited entrainment is essential — without it, all nodes collapse to a global mean
+- Phase-amplitude coupling confirmed: slow-band phase modulates fast-band amplitude (PAC = 0.064)
+- The 39:25 node ratio favoring the slow band makes sense: the slow envelope is always present while the fast carrier is amplitude-modulated (intermittent)
+- Initial frequency distribution was uniform in [0.01, 1.0] — the clustering is entirely emergent
 
 ## Running
 
@@ -113,8 +150,11 @@ python experiments/seed/02_computational_capacity.py --steps 5000 --nodes 64
 
 # Self-scaling (4 phases)
 python experiments/seed/03_self_scaling.py --nodes 16
+
+# Frequency bands and cross-scale coupling (~45s)
+python experiments/seed/04_frequency_bands.py --steps 20000 --nodes 64
 ```
 
 ## Status
 
-The core mechanism (Rule 2a + sparse regime + σ decay) is validated. The network self-organizes to criticality, serves as a useful reservoir, and grows adaptively. Next steps: coupling to the embodied environment as the sensor/actuator interface.
+Core mechanism validated (criticality, reservoir capacity, adaptive growth). Frequency band formation and cross-scale coupling confirmed with bandwidth-limited entrainment. Next steps: coupling to the embodied environment as the sensor/actuator interface.
