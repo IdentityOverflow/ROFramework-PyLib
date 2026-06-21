@@ -101,6 +101,13 @@ class SeedNetwork:
         self._mi_buffer_ext: deque = deque(maxlen=config.recruit_window)
         self._mi_buffer_int: deque = deque(maxlen=config.recruit_window)
 
+        # Hemisphere tracking
+        self._hemisphere_L: set = set()
+        self._hemisphere_R: set = set()
+        self._hemisphere_M: set = set()
+        self._motor_nodes: Dict[str, str] = {}  # node_id -> motor_label
+        self._reward_modulator: float = 0.0
+
         # Build initial network
         self.nodes: Dict[str, OscillatoryNode] = {}
         self._build_initial_network()
@@ -115,6 +122,16 @@ class SeedNetwork:
         return nid
 
     def _build_initial_network(self) -> None:
+        """Build the initial network topology."""
+        cfg = self.config
+        if cfg.hemisphere_enabled:
+            self._build_hemispheric_network()
+        else:
+            self._build_ring_lattice()
+        if cfg.motor_nodes_enabled and cfg.motor_node_spec:
+            self._build_motor_nodes()
+
+    def _build_ring_lattice(self) -> None:
         """Create N_init nodes with log-uniform frequency, ring-lattice topology."""
         cfg = self.config
         freq_lo, freq_hi = cfg.freq_range
@@ -146,18 +163,170 @@ class SeedNetwork:
             )
 
         # Ring-lattice: connect each node to k nearest frequency neighbors
+        self._connect_ring_lattice(node_ids)
+
+    def _connect_ring_lattice(self, node_ids: List[str]) -> None:
+        """Wire a list of nodes into a ring-lattice with k_neighbors connections."""
         n = len(node_ids)
-        k = cfg.k_neighbors
+        k = self.config.k_neighbors
         for i, nid in enumerate(node_ids):
             node = self.nodes[nid]
             for offset in range(1, k // 2 + 1):
-                # Connect to neighbors on both sides in frequency-sorted ring
                 for j in [i - offset, i + offset]:
                     j = j % n
                     other_id = node_ids[j]
                     if other_id != nid:
                         w = float(self.rng.uniform(-0.01, 0.01))
                         node.form_connection(other_id, initial_weight=w)
+
+    def _build_hemispheric_network(self) -> None:
+        """Build two hemispheric ring-lattices connected by callosal bridges."""
+        cfg = self.config
+        freq_lo, freq_hi = cfg.freq_range
+
+        # Split n_init across two hemispheres
+        n_per_hemi = cfg.n_init // 2
+        seeds_per_hemi = max(1, cfg.n_seed_nodes // 2)
+
+        for hemi_label in ("L", "R"):
+            log_freqs = np.linspace(
+                np.log(freq_lo), np.log(freq_hi), n_per_hemi
+            )
+            log_freqs += self.rng.standard_normal(n_per_hemi) * 0.05
+            frequencies = np.exp(log_freqs)
+            frequencies = np.clip(frequencies, freq_lo, freq_hi)
+            sorted_indices = np.argsort(frequencies)
+
+            hemi_ids: List[str] = []
+            for idx, i in enumerate(sorted_indices):
+                nid = self._new_node_id()
+                hemi_ids.append(nid)
+                is_seed = idx < seeds_per_hemi
+                self.nodes[nid] = OscillatoryNode(
+                    node_id=nid,
+                    frequency=float(frequencies[i]),
+                    phase=float(self.rng.uniform(0, 2 * math.pi)),
+                    is_seed_node=is_seed,
+                    hemisphere=hemi_label,
+                    _config=cfg,
+                )
+                if hemi_label == "L":
+                    self._hemisphere_L.add(nid)
+                else:
+                    self._hemisphere_R.add(nid)
+
+            # Wire within-hemisphere ring-lattice
+            self._connect_ring_lattice(hemi_ids)
+
+        # Create callosal bridge nodes
+        n_bridges = cfg.n_callosal_bridges * cfg.callosal_bands
+        if n_bridges > 0:
+            bridge_log_freqs = np.linspace(
+                np.log(freq_lo), np.log(freq_hi), n_bridges
+            )
+            bridge_log_freqs += self.rng.standard_normal(n_bridges) * 0.03
+            bridge_freqs = np.exp(bridge_log_freqs)
+            bridge_freqs = np.clip(bridge_freqs, freq_lo, freq_hi)
+
+            for bf in bridge_freqs:
+                nid = self._new_node_id()
+                self.nodes[nid] = OscillatoryNode(
+                    node_id=nid,
+                    frequency=float(bf),
+                    phase=float(self.rng.uniform(0, 2 * math.pi)),
+                    is_seed_node=False,
+                    node_role="callosal",
+                    hemisphere="M",
+                    _config=cfg,
+                )
+                self._hemisphere_M.add(nid)
+
+                # Connect to k//2 frequency-nearest nodes in each hemisphere
+                half_k = max(1, cfg.k_neighbors // 2)
+                for hemi_set in (self._hemisphere_L, self._hemisphere_R):
+                    by_freq = sorted(
+                        hemi_set,
+                        key=lambda oid: abs(self.nodes[oid].frequency - bf),
+                    )
+                    for other_id in by_freq[:half_k]:
+                        w = float(self.rng.uniform(-0.005, 0.005))
+                        self.nodes[nid].form_connection(other_id, initial_weight=w)
+                        self.nodes[other_id].form_connection(nid, initial_weight=w)
+
+    def _build_motor_nodes(self) -> None:
+        """Create motor node populations from motor_node_spec."""
+        cfg = self.config
+        motor_lo, motor_hi = cfg.motor_freq_range
+
+        for label, count in cfg.motor_node_spec.items():
+            # Determine hemisphere from label suffix
+            if label.endswith("_L"):
+                hemi = "L"
+            elif label.endswith("_R"):
+                hemi = "R"
+            else:
+                hemi = "M"
+
+            for _ in range(count):
+                freq = float(np.exp(self.rng.uniform(
+                    np.log(motor_lo), np.log(motor_hi)
+                )))
+                self._create_motor_node(label, hemi, freq)
+
+    def _create_motor_node(self, label: str, hemi: str, freq: float) -> str:
+        """Create a single motor node and wire it into the network."""
+        cfg = self.config
+        nid = self._new_node_id()
+        self.nodes[nid] = OscillatoryNode(
+            node_id=nid,
+            frequency=freq,
+            phase=float(self.rng.uniform(0, 2 * math.pi)),
+            is_seed_node=True,  # protected from pruning
+            node_role="motor",
+            hemisphere=hemi,
+            motor_label=label,
+            _config=cfg,
+        )
+        self._motor_nodes[nid] = label
+        self._add_to_hemisphere(nid, hemi)
+
+        # Connect to k frequency-nearest nodes within hemisphere
+        candidates = self._freq_nearest_candidates(
+            nid, freq, hemi if cfg.hemisphere_enabled else None
+        )
+        for other_id in candidates[:cfg.k_neighbors]:
+            w = float(self.rng.uniform(-0.01, 0.01))
+            self.nodes[nid].form_connection(other_id, initial_weight=w)
+            self.nodes[other_id].form_connection(nid, initial_weight=w)
+        return nid
+
+    def _add_to_hemisphere(self, nid: str, hemi: str) -> None:
+        """Register a node in the appropriate hemisphere set."""
+        if hemi == "L":
+            self._hemisphere_L.add(nid)
+        elif hemi == "R":
+            self._hemisphere_R.add(nid)
+        elif hemi == "M":
+            self._hemisphere_M.add(nid)
+
+    def _freq_nearest_candidates(
+        self, exclude_nid: str, freq: float, hemi: Optional[str] = None
+    ) -> List[str]:
+        """Return node IDs sorted by frequency distance, optionally within a hemisphere."""
+        if hemi == "L":
+            pool = self._hemisphere_L
+        elif hemi == "R":
+            pool = self._hemisphere_R
+        elif hemi == "M":
+            pool = self._hemisphere_L | self._hemisphere_R
+        else:
+            pool = set(self.nodes.keys())
+
+        target_freq = freq  # capture for lambda
+        return sorted(
+            (oid for oid in pool if oid != exclude_nid),
+            key=lambda oid, f=target_freq: abs(self.nodes[oid].frequency - f),
+        )
 
     # ------------------------------------------------------------------
     # Main step
@@ -192,10 +361,12 @@ class SeedNetwork:
             drive = drives.get(nid, 0.0)
             node.step(neighborhoods[nid], drive, self.rng)
 
-        # 4. Each node: adjust_couplings() — Rule 2a
+        # 4. Each node: adjust_couplings() — Rule 2a (with reward modulation)
         all_pruned: List[str] = []
         for node in self.nodes.values():
-            pruned = node.adjust_couplings()
+            pruned = node.adjust_couplings(
+                reward_modulator=self._reward_modulator
+            )
             all_pruned.extend(pruned)
 
         # 5. Each node: propose_introductions() — Rule 2b
@@ -370,6 +541,9 @@ class SeedNetwork:
     ) -> Optional[OscillatoryNode]:
         """Add a new node to the network (Rule 4 action).
 
+        When hemisphere_enabled, assigns the new node to the hemisphere
+        with fewer nodes and connects within that hemisphere.
+
         Args:
             near_frequency: Target frequency. If None, picks an
                 underrepresented frequency range.
@@ -384,36 +558,41 @@ class SeedNetwork:
         if near_frequency is None:
             near_frequency = self._find_underrepresented_frequency()
 
+        # Assign hemisphere (smaller side) when enabled
+        if cfg.hemisphere_enabled:
+            hemi = "L" if len(self._hemisphere_L) <= len(self._hemisphere_R) else "R"
+        else:
+            hemi = ""
+
         nid = self._new_node_id()
         node = OscillatoryNode(
             node_id=nid,
             frequency=near_frequency,
             phase=float(self.rng.uniform(0, 2 * math.pi)),
             is_seed_node=False,
+            hemisphere=hemi,
             _config=cfg,
         )
 
         self.nodes[nid] = node
+        self._add_to_hemisphere(nid, hemi)
         self._mi_buffer_int.clear()  # node count changed
 
-        # Connect to k nearest by frequency
-        freq_distances = [
-            (other_id, abs(other.frequency - near_frequency))
-            for other_id, other in self.nodes.items()
-            if other_id != nid
-        ]
-        freq_distances.sort(key=lambda x: x[1])
-        k_freq = min(cfg.k_neighbors, len(freq_distances))
-
-        for other_id, _ in freq_distances[:k_freq]:
+        # Connect to k nearest by frequency (within hemisphere if enabled)
+        candidates = self._freq_nearest_candidates(
+            nid, near_frequency, hemi if cfg.hemisphere_enabled else None
+        )
+        k_freq = min(cfg.k_neighbors, len(candidates))
+        for other_id in candidates[:k_freq]:
             w = float(self.rng.uniform(-0.001, 0.001))
             node.form_connection(other_id, initial_weight=w)
             self.nodes[other_id].form_connection(nid, initial_weight=w)
 
         # Also connect to m most active nodes (m ~ k_neighbors // 2)
         m = max(1, cfg.k_neighbors // 2)
+        pool = candidates if cfg.hemisphere_enabled else list(self.nodes.keys())
         activity_ranked = sorted(
-            ((oid, abs(o.activation)) for oid, o in self.nodes.items() if oid != nid),
+            ((oid, abs(self.nodes[oid].activation)) for oid in pool if oid != nid),
             key=lambda x: x[1],
             reverse=True,
         )
@@ -509,6 +688,12 @@ class SeedNetwork:
             if other_id in self.nodes:
                 self.nodes[other_id].remove_connection(node_id)
 
+        # Remove from hemisphere tracking
+        self._hemisphere_L.discard(node_id)
+        self._hemisphere_R.discard(node_id)
+        self._hemisphere_M.discard(node_id)
+        self._motor_nodes.pop(node_id, None)
+
         del self.nodes[node_id]
         self._mi_buffer_int.clear()  # node count changed
         return True
@@ -532,6 +717,28 @@ class SeedNetwork:
     def get_branching_ratios(self) -> Dict[str, float]:
         """Current {node_id: branching_ratio} for all nodes."""
         return {nid: n.branching_ratio for nid, n in self.nodes.items()}
+
+    def set_reward_modulator(self, rpe: float) -> None:
+        """Set the global reward prediction error for Rule 2a modulation."""
+        self._reward_modulator = float(rpe)
+
+    def get_motor_activations(self) -> Dict[str, float]:
+        """Return {motor_label: activation} for all motor nodes."""
+        return {
+            label: self.nodes[nid].activation
+            for nid, label in self._motor_nodes.items()
+            if nid in self.nodes
+        }
+
+    def get_hemisphere(self, node_id: str) -> str:
+        """Return hemisphere label for a node ("L", "R", "M", or "")."""
+        if node_id in self._hemisphere_L:
+            return "L"
+        if node_id in self._hemisphere_R:
+            return "R"
+        if node_id in self._hemisphere_M:
+            return "M"
+        return ""
 
     # ------------------------------------------------------------------
     # as_observer — bridge to RO Framework library
@@ -603,6 +810,11 @@ class SeedNetwork:
             "step_count": self._step_count,
             "next_node_id": self._next_node_id,
             "nodes": {nid: n.to_dict() for nid, n in self.nodes.items()},
+            "hemisphere_L": sorted(self._hemisphere_L),
+            "hemisphere_R": sorted(self._hemisphere_R),
+            "hemisphere_M": sorted(self._hemisphere_M),
+            "motor_nodes": dict(self._motor_nodes),
+            "reward_modulator": self._reward_modulator,
         }
 
     @classmethod
@@ -631,6 +843,13 @@ class SeedNetwork:
         net.nodes = {}
         for nid, node_d in d.get("nodes", {}).items():
             net.nodes[nid] = OscillatoryNode.from_dict(node_d, config)
+
+        # Reconstruct hemisphere tracking
+        net._hemisphere_L = set(d.get("hemisphere_L", []))
+        net._hemisphere_R = set(d.get("hemisphere_R", []))
+        net._hemisphere_M = set(d.get("hemisphere_M", []))
+        net._motor_nodes = dict(d.get("motor_nodes", {}))
+        net._reward_modulator = float(d.get("reward_modulator", 0.0))
 
         return net
 

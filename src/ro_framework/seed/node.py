@@ -69,9 +69,25 @@ class SeedConfig:
     # Frequency entrainment
     freq_learning_rate: float = 0.001
 
+    # Hemispheric topology (off by default for backward compatibility)
+    hemisphere_enabled: bool = False
+    n_callosal_bridges: int = 4       # bridge nodes per frequency band
+    callosal_bands: int = 3           # frequency bands with bridges (low/mid/high)
+
+    # Motor node populations (off by default)
+    motor_nodes_enabled: bool = False
+    motor_node_spec: Dict[str, int] = field(default_factory=dict)
+    motor_freq_range: Tuple[float, float] = (0.01, 0.05)
+
+    # Reward modulation of Rule 2a (off by default)
+    reward_modulation_enabled: bool = False
+    rpe_scale: float = 5.0            # multiplicative RPE scale
+    rpe_baseline_lr_frac: float = 0.2  # baseline learning fraction when RPE=0
+
     def to_dict(self) -> Dict[str, Any]:
         d = dict(self.__dict__)
         d["freq_range"] = list(d["freq_range"])
+        d["motor_freq_range"] = list(d["motor_freq_range"])
         return d
 
     @classmethod
@@ -79,6 +95,8 @@ class SeedConfig:
         d = dict(d)
         if "freq_range" in d:
             d["freq_range"] = tuple(d["freq_range"])
+        if "motor_freq_range" in d:
+            d["motor_freq_range"] = tuple(d["motor_freq_range"])
         return cls(**d)
 
 
@@ -110,6 +128,11 @@ class OscillatoryNode:
     phase: float = 0.0
     activation: float = 0.0
     is_seed_node: bool = False
+
+    # Role and topology (defaults preserve backward compatibility)
+    node_role: str = "general"   # "general" | "motor" | "callosal"
+    hemisphere: str = ""         # "L" | "R" | "M" (midline) | ""
+    motor_label: str = ""        # e.g. "fwd_push_L", "turn_R" — empty for non-motor
 
     # Coupling weights — keyed by neighbor node_id
     coupling_weights: Dict[str, float] = field(default_factory=dict)
@@ -256,18 +279,22 @@ class OscillatoryNode:
     # Rule 2a: adjust weights
     # ------------------------------------------------------------------
 
-    def adjust_couplings(self) -> List[str]:
+    def adjust_couplings(self, reward_modulator: float = 1.0) -> List[str]:
         """Hebbian adjustment governed by branching ratio error.
 
-        Δw_ij = lr * act_i * act_j * (1 - σ_i)
+        Δw_ij = effective_lr * act_i * act_j * (1 - σ_i)
 
         When σ < 1 (subcritical): co-active pairs strengthen
         When σ > 1 (supercritical): co-active pairs weaken
         When σ ≈ 1: near-zero adjustment (at criticality)
 
-        This is the ONLY weight update rule. In a sparse regime where
-        activation requires coupling input, this single rule is
-        sufficient for self-regulation.
+        When reward_modulation_enabled, the learning rate is modulated
+        by reward prediction error (three-factor Hebbian):
+            effective_lr = base_lr * (baseline_frac + rpe_scale * rpe)
+
+        Args:
+            reward_modulator: RPE value for reward modulation.
+                Ignored when reward_modulation_enabled is False.
 
         Returns:
             List of pruned neighbor node_ids.
@@ -278,13 +305,22 @@ class OscillatoryNode:
         prune_thresh = cfg.prune_weight_threshold if cfg else 0.005
         prune_window = cfg.prune_weight_window if cfg else 200
 
+        # Reward modulation: scale learning rate by RPE
+        if cfg and cfg.reward_modulation_enabled:
+            effective_lr = lr * (cfg.rpe_baseline_lr_frac
+                                 + cfg.rpe_scale * reward_modulator)
+            # Clamp to prevent catastrophic unlearning
+            effective_lr = max(effective_lr, -lr * 2.0)
+        else:
+            effective_lr = lr
+
         pruned: List[str] = []
         sigma_error = 1.0 - self.branching_ratio
 
         for nid in list(self.coupling_weights.keys()):
             neighbor_act = self._last_neighborhood.get(nid, 0.0)
             hebbian = self.activation * neighbor_act
-            delta = lr * hebbian * sigma_error
+            delta = effective_lr * hebbian * sigma_error
 
             self.coupling_weights[nid] = float(np.clip(
                 self.coupling_weights[nid] + delta, -w_max, w_max
@@ -418,6 +454,9 @@ class OscillatoryNode:
             "phase": self.phase,
             "activation": self.activation,
             "is_seed_node": self.is_seed_node,
+            "node_role": self.node_role,
+            "hemisphere": self.hemisphere,
+            "motor_label": self.motor_label,
             "coupling_weights": dict(self.coupling_weights),
             "noise_floor": self.noise_floor,
             "drive_amplitude": self.drive_amplitude,
@@ -449,6 +488,9 @@ class OscillatoryNode:
             phase=d.get("phase", 0.0),
             activation=d.get("activation", 0.0),
             is_seed_node=d.get("is_seed_node", False),
+            node_role=d.get("node_role", "general"),
+            hemisphere=d.get("hemisphere", ""),
+            motor_label=d.get("motor_label", ""),
             coupling_weights=dict(d.get("coupling_weights", {})),
             noise_floor=d.get("noise_floor", config.noise_floor),
             drive_amplitude=d.get("drive_amplitude", config.drive_amplitude),
