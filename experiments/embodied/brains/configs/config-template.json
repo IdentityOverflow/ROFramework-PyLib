@@ -24,6 +24,8 @@
   "learn_lr": 0.0001,
   "_comment_critic_lr": "Critic learning rate \u2014 how fast valence_pred tracks the running reward signal.",
   "critic_lr": 0.001,
+  "_comment_teacher_force_lr": "Supervised readout nudge when teleop-teaching is active. The brain learns from the demonstrated action directly. Set to 0 to disable.",
+  "teacher_force_lr": 0.002,
   "_comment_trace_decay": "Eligibility trace decay per step. 0.99 \u2248 1.7-second memory at 60 fps. Lower = shorter credit-assignment horizon.",
   "trace_decay": 0.99,
   "_comment_weight_decay": "L2 regularisation on W_out applied every step. Prevents unbounded weight growth. Typical: 1e-5 to 1e-4.",

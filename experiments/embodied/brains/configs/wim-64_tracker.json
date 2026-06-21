@@ -3,9 +3,9 @@
   "_brain_type": "wim_brain.py",
 
   "name": "Wim-64",
-  "brain_path": "brains/Wim-64.npz",
-  "log_path":   "brains/logs/Wim-64.csv",
-  "world_config": "rulesets/harsher-world.json",
+  "brain_path": "brains/Wim-64_tracker.npz",
+  "log_path":   "brains/logs/Wim-64_tracker.csv",
+  "world_config": "rulesets/empty_world.json",
 
   "grid_size":      128,
   "tension":        1.2,

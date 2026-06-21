@@ -1,0 +1,49 @@
+{
+  "_doc": "MLP actor-critic brain — 263 → 512 → 256 → (fwd, turn, eat) + value head",
+  "_brain_type": "nn_brain.py",
+
+  "name":              "NN-256",
+  "brain_path":        "brains/NN-256.pt",
+  "log_path":          "brains/logs/nn-256.csv",
+  "world_config":      "rulesets/harsher_world.json",
+
+  "_section_net": "--- Network architecture ---",
+  "hidden1":           512,
+  "hidden2":           256,
+
+  "_section_learn": "--- Learning ---",
+  "actor_lr":          3e-4,
+  "_comment_critic_coef": "Weight of critic loss vs actor loss. 0.5 = standard A2C.",
+  "critic_coef":       0.5,
+  "_comment_entropy_coef": "Entropy bonus. Prevents premature collapse to a single action. Higher than default because signal is sparse.",
+  "entropy_coef":      0.05,
+  "_comment_weight_decay": "Zero — tiny Δvalence gradients cannot compete with L2 decay.",
+  "weight_decay":      0.0,
+  "max_grad_norm":     1.0,
+  "_comment_gamma": "Discount factor. 0.99 = ~100 step horizon at 60fps.",
+  "gamma":             0.99,
+
+  "_section_reward": "--- Reward shaping ---",
+  "_comment_reward_scale": "Scales Δvalence into a useful gradient range. Raw Δvalence is ~0.002/step.",
+  "reward_scale":      10.0,
+
+  "_section_explore": "--- Exploration ---",
+  "_comment_explore": "Gaussian std on fwd/turn. High initial std forces the agent to move and discover food.",
+  "explore_std_init":  0.8,
+  "explore_std_min":   0.1,
+  "_comment_decay": "200k steps = ~55 min at 60fps. Enough time to observe eating/danger events.",
+  "explore_decay_steps": 200000,
+
+  "_section_action": "--- Action ---",
+  "eat_threshold":     0.5,
+
+  "_section_ro": "--- RO Framework ---",
+  "assess_every":      300,
+  "log_capacity":      5000,
+
+  "_section_arch": "--- Architecture ---",
+  "seed":              42,
+  "action_feedback":   true,
+  "decision_interval": 1,
+  "device":            "cuda"
+}

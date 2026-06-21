@@ -119,6 +119,13 @@ WAVE_DEFAULT_CONFIG: dict = {
     "learn_lr":         LEARN_LR,
     "critic_lr":        CRITIC_LR,
     "teacher_force_lr": 2e-3,      # supervised readout nudge when teleop-teaching is active
+    # Hebbian plasticity — per-edge spring tension learning (teleop-gated)
+    "hebbian_plasticity": False,   # opt-in (no overhead when off)
+    "hebbian_lr":         1e-3,    # tension update rate during teleop
+    "tension_min":        0.05,    # lower clamp (prevents dead springs)
+    "tension_max":        2.0,     # upper clamp (prevents instability)
+    "tension_decay":      1e-4,    # drift rate back toward baseline per step
+    "hebb_trace_decay":   0.95,    # co-displacement trace EMA decay
     "trace_decay":      TRACE_DECAY,
     "weight_decay":     WEIGHT_DECAY,
     # RO Framework
@@ -393,7 +400,9 @@ class WaveReservoir:
         self.grid_size    = grid_size
         self.size         = grid_size * grid_size   # N — total nodes
         self._tension     = float(tension)
+        self._base_tension = float(tension)          # baseline for Hebbian decay
         self._damping     = float(damping)
+        self._per_edge_tension = None                # (N, 8) or None — see enable_per_edge_tension()
         self._noise_scale = float(noise_scale)
         self._input_scale = float(input_scale)
 
@@ -466,10 +475,16 @@ class WaveReservoir:
         """One step of discrete wave equation with energy tracking."""
         # Gather neighbor displacements
         nb_d = self._disp[self._nb_safe] * self._nb_valid   # (N, 8)
-        mean_nb = nb_d.sum(dim=1) * self._nb_inv_count
 
-        # Force and velocity
-        force = self._tension * (mean_nb - self._disp)
+        # Force computation — per-edge or scalar tension
+        if self._per_edge_tension is not None:
+            diff = nb_d - self._disp.unsqueeze(1) * self._nb_valid   # (N, 8)
+            weighted = self._per_edge_tension * diff * self._nb_valid  # (N, 8)
+            tension_sum = (self._per_edge_tension * self._nb_valid).sum(dim=1).clamp_(min=1e-6)
+            force = weighted.sum(dim=1) / tension_sum
+        else:
+            mean_nb = nb_d.sum(dim=1) * self._nb_inv_count
+            force = self._tension * (mean_nb - self._disp)
         self._vel.mul_(1.0 - self._damping).add_(force)
         self._vel[self._is_anchor] = 0.0
         self._disp.add_(self._vel)
@@ -527,6 +542,25 @@ class WaveReservoir:
         self._disp.zero_()
         self._vel.zero_()
         self._energy.zero_()
+
+    # ── Per-edge tension (Hebbian plasticity) ─────────────────────────────────
+
+    def enable_per_edge_tension(self, tension_min: float = 0.05,
+                                tension_max: float = 2.0) -> None:
+        """Allocate per-edge tension tensor, initialized to baseline. Idempotent."""
+        if self._per_edge_tension is not None:
+            return
+        self._per_edge_tension = torch.full(
+            (self.size, 8), self._base_tension,
+            dtype=torch.float32, device=self._dev,
+        )
+        self._tension_min = tension_min
+        self._tension_max = tension_max
+
+    def compute_co_displacement(self) -> torch.Tensor:
+        """Return (N, 8) co-displacement: disp[i] * disp[j] for each edge."""
+        nb_disp = self._disp[self._nb_safe] * self._nb_valid   # (N, 8)
+        return self._disp.unsqueeze(1) * nb_disp                # (N, 8)
 
 
 # ── WimBrain ───────────────────────────────────────────────────────────────────
@@ -682,6 +716,20 @@ class WimBrain:
         self.learning_enabled = True
         self._last_obs: Optional[np.ndarray] = None
 
+        # ── Hebbian plasticity (per-edge spring tension) ──────────────────
+        self._hebbian_plasticity = bool(cfg.get("hebbian_plasticity", False))
+        if self._hebbian_plasticity:
+            self._hebbian_lr       = float(cfg.get("hebbian_lr", 1e-3))
+            self._tension_decay    = float(cfg.get("tension_decay", 1e-4))
+            self._hebb_trace_decay = float(cfg.get("hebb_trace_decay", 0.95))
+            self._reservoir.enable_per_edge_tension(
+                tension_min=float(cfg.get("tension_min", 0.05)),
+                tension_max=float(cfg.get("tension_max", 2.0)),
+            )
+            self._hebb_trace = torch.zeros(
+                res_size, 8, dtype=torch.float32, device=self._dev,
+            )
+
         # ── RO Framework — Observer + KnowledgeTracker ─────────────────────
         self._observer = Observer(
             name          = "wim_brain",
@@ -750,6 +798,23 @@ class WimBrain:
             self.b_out.add_(teacher_err, alpha=self._teacher_force_lr * 0.1)
         self.W_out.mul_(1.0 - self._weight_decay)
 
+        # Hebbian plasticity — per-edge spring tension (teleop-gated)
+        if self._hebbian_plasticity:
+            co_disp = self._reservoir.compute_co_displacement()   # (N, 8)
+            self._hebb_trace.mul_(self._hebb_trace_decay).add_(co_disp)
+
+            if self._teacher_forced:
+                res = self._reservoir
+                res._per_edge_tension.add_(self._hebb_trace, alpha=self._hebbian_lr)
+                res._per_edge_tension.clamp_(res._tension_min, res._tension_max)
+
+            # Decay toward baseline (always, regardless of teleop)
+            res = self._reservoir
+            if res._per_edge_tension is not None:
+                res._per_edge_tension.add_(
+                    self._tension_decay * (res._base_tension - res._per_edge_tension)
+                )
+
     @torch.no_grad()
     def set_executed_action(self, action, teacher_forced: bool = False) -> None:
         """Record the action the world actually executed last step."""
@@ -772,6 +837,9 @@ class WimBrain:
         self._last_h.zero_()
         self._has_executed_action = False
         self._teacher_forced = False
+        if self._hebbian_plasticity:
+            self._hebb_trace.zero_()
+        # NOTE: _per_edge_tension persists across episodes (structural memory)
 
     # ── Knowledge tracker ────────────────────────────────────────────────────────
 
@@ -782,16 +850,24 @@ class WimBrain:
     # ── Persistence ─────────────────────────────────────────────────────────────
 
     def save(self, path: str) -> None:
-        np.savez(path,
-                 W_out        = self.W_out.cpu().numpy(),
-                 b_out        = self.b_out.cpu().numpy(),
-                 valence_pred = np.array(self._valence_pred))
+        save_dict = {
+            'W_out':        self.W_out.cpu().numpy(),
+            'b_out':        self.b_out.cpu().numpy(),
+            'valence_pred': np.array(self._valence_pred),
+        }
+        if self._hebbian_plasticity and self._reservoir._per_edge_tension is not None:
+            save_dict['edge_tension'] = self._reservoir._per_edge_tension.cpu().numpy()
+        np.savez(path, **save_dict)
 
     def load(self, path: str) -> None:
         data = np.load(path)
         self.W_out.copy_(torch.from_numpy(data["W_out"].astype(np.float32)))
         self.b_out.copy_(torch.from_numpy(data["b_out"].astype(np.float32)))
         self._valence_pred = float(data["valence_pred"])
+        if "edge_tension" in data and self._hebbian_plasticity:
+            self._reservoir._per_edge_tension.copy_(
+                torch.from_numpy(data["edge_tension"].astype(np.float32))
+            )
 
     # ── Properties ──────────────────────────────────────────────────────────────
 

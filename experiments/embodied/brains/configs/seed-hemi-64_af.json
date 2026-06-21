@@ -1,0 +1,60 @@
+{
+  "_doc": "Hemispheric Seed Brain — motor nodes inside the network, no W_out readout",
+  "_doc_arch": "Cross-lateralized vision, push/pull motor populations, reward-modulated Hebbian learning (Rule 2a)",
+
+  "name":              "Seed-Hemi-64_af",
+  "brain_path":        "brains/Seed-Hemi-64_af.npz",
+  "log_path":          "brains/logs/seed-hemi-64_af.csv",
+  "world_config":      "rulesets/default.json",
+
+  "_section_network": "--- Seed network core ---",
+  "n_init":            64,
+  "k_neighbors":       6,
+  "n_seed_nodes":      8,
+  "max_nodes":         16384,
+  "noise_floor":       0.05,
+  "drive_amplitude":   0.2,
+  "activation_threshold": 0.5,
+  "freq_range":        [0.01, 1.0],
+  "learning_rate":     0.01,
+  "w_max":             2.0,
+  "freq_learning_rate": 0.001,
+
+  "_section_hemi": "--- Hemispheric topology ---",
+  "hemisphere_enabled":   true,
+  "n_callosal_bridges":   4,
+  "callosal_bands":       3,
+
+  "_section_motor": "--- Motor node populations ---",
+  "motor_nodes_enabled":  true,
+  "motor_node_spec": {
+    "fwd_push_L": 1, "fwd_pull_L": 1,
+    "fwd_push_R": 1, "fwd_pull_R": 1,
+    "turn_L": 1, "turn_R": 1,
+    "eat_L": 1, "eat_R": 1
+  },
+  "motor_freq_range":  [0.01, 0.05],
+
+  "_section_reward": "--- Reward modulation of Rule 2a ---",
+  "reward_modulation_enabled": true,
+  "rpe_scale":          5.0,
+  "rpe_baseline_lr_frac": 0.2,
+
+  "_section_sensor": "--- Sensor ---",
+  "sensor_bandwidth":  0.8,
+  "input_scale":       1.0,
+
+  "_section_learning": "--- Learning (critic only, no W_out) ---",
+  "eat_threshold":     0.0,
+  "critic_lr":         1e-3,
+
+  "_section_ro": "--- RO Framework ---",
+  "assess_every":      300,
+  "log_capacity":      5000,
+
+  "_section_arch": "--- Architecture ---",    
+  "seed":              42,
+  "action_feedback":   true,
+  "decision_interval": 1,
+  "device":            "cpu"
+}

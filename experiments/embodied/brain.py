@@ -657,6 +657,7 @@ def run_headless(brain: EmbodiedBrain, args: argparse.Namespace) -> None:
 
     world_cfg  = _load_world_config(args._world_config) if getattr(args, "_world_config", None) else {}
     world      = World(seed=getattr(args, "seed", 42), no_reset_on_death=args.no_reset, cfg=world_cfg)
+    world.player_active = False   # no human player in headless — prevents player-death reset
     world.add_agent()   # headless mode bypasses registration; spawn slot 0 directly
     csv_writer = _open_log(args.log_path) if args.log_path else None
     decision_interval = getattr(args, "_decision_interval", 1)

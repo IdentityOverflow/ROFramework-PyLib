@@ -8,7 +8,7 @@
   "vision_range": 450.0,
   "satiation_drain_rate": 0.0001,
   "valence_decay_neg": 0.01,
-  "valence_decay_pos": 0.001,
+  "valence_decay_pos": 0.01,
   "hunger_valence_drain": 0.015,
   "danger_life_delay_steps": 180,
   "life_drain_rate": 0.001,

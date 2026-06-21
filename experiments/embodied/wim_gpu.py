@@ -534,6 +534,22 @@ def _draw_brain_overlay(surface, brain_state):
 
     step_s = font.render(f"step: {step}", True, (140, 140, 150))
     surface.blit(step_s, (x, y))
+    x += step_s.get_width() + 14
+
+    # Hebbian tension stats (if per-edge plasticity is active)
+    if _brain is not None and getattr(_brain, "_hebbian_plasticity", False):
+        pet = _brain._reservoir._per_edge_tension
+        if pet is not None:
+            base = _brain._reservoir._base_tension
+            t_mean = float(pet.mean())
+            t_std  = float(pet.std())
+            t_max  = float(pet.max())
+            t_min  = float(pet.min())
+            t_s = font.render(
+                f"T: {t_mean:.3f}\u00b1{t_std:.3f} [{t_min:.2f},{t_max:.2f}] base={base:.2f}",
+                True, (200, 180, 100),
+            )
+            surface.blit(t_s, (x, y))
 
 
 class GLRenderer:
