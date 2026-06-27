@@ -19,7 +19,7 @@ Background:
 
     After grokking, individual neurons become nearly pure cosine waves as
     functions of (a+b) mod p ("On the Mechanism and Dynamics of Modular
-    Addition", He et al. 2025).  However, raw per-pair activations have
+    Addition", He et al. 2026, arXiv:2602.16849).  However, raw per-pair activations have
     ~89% within-sum-class variance from pair-specific embedding effects.
 
     We average activations by sum class s = (a+b) mod p before probing.

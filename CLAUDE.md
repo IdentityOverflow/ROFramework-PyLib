@@ -120,7 +120,7 @@ src/ro_framework/
 
 ### Phase 8: Training-Time Knowledge Dynamics & Resonance Detection
 
-Motivated by: "On the Mechanism and Dynamics of Modular Addition" (He et al., 2025)
+Motivated by: "On the Mechanism and Dynamics of Modular Addition" (He et al., 2026, arXiv:2602.16849)
 which shows learning is a resonance selection process — neurons compete, winners are
 determined by initial spectral alignment, and grokking is a phase transition from
 memorization to generalized (resonant) representation. Our K(d_ext) tuple can track

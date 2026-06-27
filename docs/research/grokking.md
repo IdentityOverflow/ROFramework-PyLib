@@ -1,6 +1,6 @@
 # Grokking and Feature Discovery Research (Phase 8)
 
-Empirical results from using the Recursive Observer Framework on training-time knowledge dynamics, motivated by [He et al. 2025](https://arxiv.org/abs/2306.12034) ("On the Mechanism and Dynamics of Modular Addition").
+Empirical results from using the Recursive Observer Framework on training-time knowledge dynamics, motivated by [He et al. 2026](https://arxiv.org/abs/2602.16849) ("On the Mechanism and Dynamics of Modular Addition: Fourier Features, Lottery Ticket, and Grokking"). The mechanistic Fourier-multiplication algorithm it builds on was first reverse-engineered by [Nanda et al. 2023](https://arxiv.org/abs/2306.12034) ("Progress measures for grokking via mechanistic interpretability").
 
 ## Knowledge Trajectory Tracking (Phase 8a)
 
@@ -173,6 +173,60 @@ K(d_ext) is a feature-level metric, not a model-level one. Using it to steer tra
 Global weight decay modulation is also too blunt — grokking depends on the competition between all features simultaneously, and changing the pressure mid-race disrupts the resonance selection dynamics rather than steering them.
 
 See [experiments/grokking/11a_knowledge_guided_training_experiment.py](../../experiments/grokking/11a_knowledge_guided_training_experiment.py) (sum-averaged), [experiments/grokking/11b_knowledge_guided_raw_experiment.py](../../experiments/grokking/11b_knowledge_guided_raw_experiment.py) (raw data).
+
+## Holographic Grokking (the resonant code, supplied vs. discovered)
+
+Grokking on modular addition is a *search* for a holographic encoding. The
+grokked network represents integers as phasors $e^{i\cdot 2\pi k n/p}$ on a
+circle, because in that code addition becomes phase addition and a linear
+readout suffices (Nanda et al. 2023; He et al. 2026). Holographic Reduced
+Representations — specifically the frequency-domain variant FHRR (Plate 1995) —
+build that code in *by construction*: items are unit-magnitude phasors, and
+binding (circular convolution = complex multiply) is phase addition. So binding
+the encodings of $a$ and $b$ yields the phasor of $(a+b)\bmod p$ directly,
+without the model ever being shown the sum.
+
+### Setup
+
+Two arms, same train/test split ($p=97$, 50%):
+
+- **Holographic:** fixed FHRR binding of $a,b$ → trainable *linear* readout only.
+  No learned encoder. The pre-readout representation is the phasor of the sum.
+- **Baseline:** standard embedding-MLP that must discover the code (the Phase 8a
+  setup), AdamW with weight decay 1.0.
+
+K(d_ext) is probed identically in both arms: per-neuron correlation of the
+pre-readout representation against the ideal Fourier features, on data averaged
+by sum class.
+
+### Result
+
+| arm | epochs → K-strong | epochs → grok (test > 95%) | within-sum-class feature variance |
+|---|---|---|---|
+| holographic | **0** | **10** | ~$10^{-28}$ (exact) |
+| baseline | 500 | 4000 | ~0.89 of total |
+
+The holographic features are an exact function of the sum class, so the 89%
+within-sum-class activation noise the baseline fights is simply absent.
+`bind(a,b) == phasor(a+b)` holds to $1.3\times10^{-13}$.
+
+### Reading
+
+The ~4000-epoch gap *is* the resonance search that grokking performs; holography
+hands it over for free, confirming the framing that grokking-time ≈
+code-discovery-time. The result also sharpens the Phase 8a/8c **feature-behavioral
+lag**: in the baseline, K reaches "strong" at epoch 500 while test accuracy is
+still 0% (features form long before composition). In the holographic arm that lag
+collapses to ~10 epochs, because the only thing left to learn is the convex
+linear readout — there is no feature-formation phase to lag behind. This is the
+clean counterpart to the 8c negative result: 8c was fooled *by* the lag; here we
+delete the search that causes it.
+
+**Honest caveat.** The holographic arm is given the answer, so ρ≈1 is true by
+construction, not a discovery. The scientific content is the *trajectory gap*,
+which quantifies the cost of the search, not the final ρ.
+
+See [experiments/grokking/13_holographic_grokking.py](../../experiments/grokking/13_holographic_grokking.py).
 
 ## Open Questions
 
