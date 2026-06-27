@@ -87,3 +87,131 @@ by re-injecting the reference (key) wave and reading the reconstructed object
 wave at the output. Success criterion for #2b: dynamics-based reconstruction beats
 the DOF-matched static control — i.e. an advantage that is *not* explained by DOF
 count alone, which #2a shows the static complex representation does not provide.
+
+---
+
+## #2b — Literal lattice re-propagation: a negative result
+
+**File:** [`02_lattice_repropagation_completion.py`](02_lattice_repropagation_completion.py)
+
+### Setup
+
+A 2D spring lattice with **local (neighbour-only)** couplings is the medium.
+Smooth wavefield patterns (band-limited superpositions of low spatial modes —
+the only thing local couplings can store) are recorded by writing local gratings
+via phase-gated Hebbian `Δc_ij ∝ f_i·f_j`. Recall clamps a *fragment* of a
+pattern onto its nodes and lets the lattice physically re-propagate through the
+recorded couplings ("a fragment reconstructs the whole"). Five arms, matched
+representation, with a **no-memory floor** (decode the raw fragment directly):
+
+1. raw-cue (no memory) — the floor
+2. lattice-wave — local, recurrent, phase-bearing (momentum) ← the test
+3. lattice-diffusive — local, recurrent, overdamped (phase-blind)
+4. local-static — local couplings, one-shot (single diffraction pass)
+5. global-static — full N×N outer-product memory, one-shot
+
+### Result (grid 16×16, N=256, 40 smooth patterns k≤7, 80 trials)
+
+Completion accuracy vs. fragment fraction:
+
+| fragment | 20% | 10% | 5% |
+|---|---|---|---|
+| raw-cue (no memory) | 100% | 99% | 92% |
+| lattice-wave (iterated) | 100% | 85% | 48% |
+| lattice-diffusive | 100% | 86% | 52% |
+| local-static (single pass) | 100% | 99% | 92% |
+| global-static (ideal) | 100% | 94% | 78% |
+
+Re-propagation steps sweep (fragment 10%): 1→100%, 3→100%, 10→75%, 100→86%,
+300→89% — **more iteration is worse**, single pass is best. Verified robust
+across {k≤7 M=60; k≤11 M=120; grid24 k≤11 M=200; k≤15 M=180}: in every regime
+**raw-cue ≥ local ≥ global**.
+
+### Verdict — the hypothesis is falsified, structurally
+
+- **No memory arm beats the raw-cue floor.** There is no completion to do: the
+  local couplings can only store *smooth* patterns, but smooth patterns are
+  redundant enough that a tiny fragment already determines them. The regime where
+  completion *would* matter — high-frequency, fragment-ambiguous patterns — is
+  exactly what local couplings cannot store. This is a genuine structural tension,
+  not a tuning miss.
+- **Iterating the re-propagation hurts.** Linear iteration is power-iteration: it
+  drifts toward the dominant stored mode and accumulates crosstalk. A hologram
+  reconstructs in a *single* diffraction pass; multi-step re-propagation is not
+  what a hologram does.
+- **Wave ≈ diffusive.** Phase/momentum is irrelevant for linear re-propagation —
+  the dynamical analog of #2a's "complex = real DOF."
+
+### What #2a + #2b together establish
+
+On the wave substrate, **neither static complex vectors (#2a) nor literal
+multi-step re-propagation (#2b) earns the holographic framing.** The linear
+wave-optical picture buys nothing beyond DOF count. A genuine memory advantage
+would require **nonlinear attractor recall** (modern Hopfield / attention) — a
+recurrent-*neural* mechanism, not a linear wave-optical one. This also sharpens
+the Seed branch (#2-Seed): for the Seed's phase to matter for memory, it must act
+through nonlinear coherence-gating / attractor dynamics, **not** linear wave
+re-propagation. The honest takeaway from #2a still stands and is the actionable
+one: `wim_brain` should read the full `(disp, vel)` state rather than discarding
+`vel`, doubling capacity — but that is a DOF win, not a holographic one.
+
+---
+
+## #3 — Holo-Reservoir Recorder: the positive result
+
+**File:** [`03_holo_reservoir_recorder.py`](03_holo_reservoir_recorder.py)
+
+The original motivation: a reservoir is bad at long memory because its echo
+*fades*. Holography is the trick of *freezing* a fleeting wave into a medium that
+does **not** fade. So put them side by side and race them — this tests the part
+of holography that genuinely works (permanence + content-addressed recall),
+sidestepping the #2b wall (clean completion needs a nonlinear decider).
+
+### Setup
+
+The reservoir is a bank of N oscillators at the **DFT frequencies** — literally a
+sliding Fourier transform. Drive it with a sequence of symbols (random
+unit-magnitude phasor vectors); it rings and decays. The bank's own phases form a
+**clock**: at each step the oscillators sit at a unique combination of angles — a
+natural timestamp (the reference wave R). Two memories are built from identical
+ingredients, differing in **one** thing:
+
+- **Live echo (fading):** the reservoir's actual state. Symbol of age `a` survives
+  only as `λ^a`.
+- **Frozen film (permanent):** each step records `symbol ⊙ timestamp` into a medium
+  with **no decay**. Symbol survives at full strength regardless of age.
+
+Recall is holographic: multiply by the step's timestamp (shine the reference back),
+decode nearest symbol.
+
+### Result (N=512 DFT oscillators, 32-symbol codebook, sequence length 50, λ=0.85)
+
+Recall accuracy vs. item age (steps since seen):
+
+| age | 0 | 4 | 8 | 16 | 24 | 32 | 48 |
+|---|---|---|---|---|---|---|---|
+| echo (reservoir) | 100% | 100% | 100% | 13% | 0% | 7% | 0% |
+| **film (hologram)** | 100% | 100% | 97% | 93% | 100% | 100% | 93% |
+
+The reservoir echo dies by age ~16; the film holds **~96% flat across all 50**.
+
+Cost — capacity (mean film recall vs. number of symbols stored):
+
+| stored | 25 | 50 | 100 | 200 | 400 | 800 |
+|---|---|---|---|---|---|---|
+| film recall | 100% | 97% | 73% | 39% | 20% | 12% |
+
+### Reading
+
+- **GAIN:** the film recalls age-49 items at 100% where the reservoir echo is long
+  dead. Same binding, same reference clock — the *only* difference is that the film
+  does not decay. This is holography answering the reservoir memory-decay problem,
+  exactly as the original intuition predicted.
+- **COST:** with no decay to shield it, the film blurs once you superpose more than
+  ~N symbols — a **capacity (crosstalk) limit, not a time limit**. The reservoir
+  trades the opposite way: unlimited symbols, but only the last few survive.
+- **Right architecture:** not "make the reservoir holographic" but **reservoir
+  (fast, fading, nonlinear processing) + holographic film (slow, permanent recall)**
+  — two subsystems, like working memory vs. long-term memory. This is the linear
+  half of holography; clean recall from a *messy* cue still needs a nonlinear
+  decider (#2b), which is the future Seed coherence-gate.
