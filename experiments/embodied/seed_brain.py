@@ -123,6 +123,14 @@ SEED_DEFAULT_CONFIG: dict = {
     # RO Framework
     "assess_every":     ASSESS_EVERY,
     "log_capacity":     LOG_CAPACITY,
+    # Holographic episodic reel (experiments/holographic #3-#6, holo_mount.py)
+    "holo_enabled":     False,
+    "holo_beta":        0.0,      # RPE shaping weight for recalled Δvalence
+    "holo_source":      "obs",    # "obs" or "state" (node activations)
+    "holo_calib_steps": 6000,
+    "holo_budget":      120,
+    "holo_context":     5,
+    "holo_horizon":     6,
     # Arch
     "seed":             42,
     "action_feedback":  False,
@@ -456,6 +464,41 @@ class SeedBrain:
             min_samples=50,
         )
 
+        # -- Holographic episodic reel (optional) -------------------------------
+        self._holo = None
+        self._holo_beta = float(cfg.get("holo_beta", 0.0))
+        self._holo_source = str(cfg.get("holo_source", "obs"))
+        self._holo_node_ids: Optional[list] = None
+        if cfg.get("holo_enabled"):
+            from holo_mount import HoloMount  # noqa: PLC0415
+            state_dim = (OBS_DIM if self._holo_source == "obs"
+                         else len(self._seed_net.nodes))
+            self._holo = HoloMount(
+                state_dim=state_dim,
+                calib_steps=int(cfg.get("holo_calib_steps", 6000)),
+                budget=int(cfg.get("holo_budget", 120)),
+                context=int(cfg.get("holo_context", 5)),
+                horizon=int(cfg.get("holo_horizon", 6)),
+                seed=seed,
+            )
+            print(f"[holo] reel mounted on SeedBrain (beta={self._holo_beta}, "
+                  f"source={self._holo_source})")
+
+    def _holo_state_vec(self) -> np.ndarray:
+        """Node activations as a fixed-size vector.
+
+        The Seed network grows; the mount's feature space cannot. The node-id
+        list is frozen at first call — nodes recruited later are invisible to
+        the reel, nodes released read as 0.
+        """
+        if self._holo_node_ids is None:
+            self._holo_node_ids = sorted(self._seed_net.nodes.keys())
+        nodes = self._seed_net.nodes
+        return np.array(
+            [nodes[i].activation if i in nodes else 0.0
+             for i in self._holo_node_ids],
+            dtype=np.float32)
+
     # -- Forward pass ----------------------------------------------------------
 
     def forward(self, obs: np.ndarray) -> tuple:
@@ -487,6 +530,16 @@ class SeedBrain:
 
     def learn(self, reward: float) -> None:
         """Compute RPE and pass to network for reward-modulated Hebbian learning."""
+        if self._holo is not None:
+            # The reel records even with learning frozen; dv̂ shapes the
+            # reward only when beta > 0 (episodic value bootstrap).
+            if self._holo_source == "obs":
+                src = (self._last_obs if self._last_obs is not None
+                       else np.zeros(OBS_DIM, dtype=np.float32))
+            else:
+                src = self._holo_state_vec()
+            dv = self._holo.step(src, reward)
+            reward = reward + self._holo_beta * dv
         if not self.learning_enabled:
             return
         rpe = reward - self._valence_pred
@@ -512,6 +565,8 @@ class SeedBrain:
         self._executed_action = np.zeros(3, dtype=np.float32)
         self._has_executed_action = False
         self._seed_net.set_reward_modulator(0.0)
+        if self._holo is not None:
+            self._holo.boundary()
 
     # -- Knowledge tracker -----------------------------------------------------
 
@@ -528,6 +583,8 @@ class SeedBrain:
             valence_pred=np.array(self._valence_pred),
             seed_net_json=np.array(json.dumps(net_dict)),
         )
+        if self._holo is not None:
+            self._holo.save(path + ".holo.npz")
 
     def load(self, path: str) -> None:
         """Load network state + critic."""
@@ -544,6 +601,10 @@ class SeedBrain:
 
         if "valence_pred" in data:
             self._valence_pred = float(data["valence_pred"])
+
+        holo_path = path + ".holo.npz"
+        if self._holo is not None and os.path.exists(holo_path):
+            self._holo.load(holo_path)
 
     # -- Properties ------------------------------------------------------------
 
@@ -667,6 +728,9 @@ def _seed_log_step(brain, step, reward_sum, log_every,
               f"sigma={brain.mean_sigma:.3f}  "
               f"active={brain.active_fraction:.1%}  "
               f"hemi=L{n_l}/R{n_r}/M{n_m}")
+
+    if getattr(brain, "_holo", None) is not None:
+        print(f"  {brain._holo.stats()}")
 
     if csv_writer is not None:
         csv_writer.writerow(row)

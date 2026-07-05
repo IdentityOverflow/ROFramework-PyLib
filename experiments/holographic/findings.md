@@ -481,7 +481,59 @@ structured behavior is learning online.
 ### Next
 
 - β > 0 A/B on a brain with structured behavior (teleop-taught or Seed-Hemi):
-  does memory-shaped RPE close the loop?
+  does memory-shaped RPE close the loop? → done in #7.
 - Consolidation: decode, deduplicate, re-record — sleep for the reel.
 - Confidence gating: dv̂ should only speak when retrieval score is high.
 - Still open from #2a: `wim_brain` readout discards `vel`, halving capacity.
+  → closed: `readout_vel` config in `wim_brain.py` reads the full phasor
+  `[tanh(disp), tanh(vel)]`, with auto-migration for disp-only checkpoints.
+
+---
+
+## #7 — β > 0 A/B on Seed-Hemi: flat, as predicted, and why
+
+**File:** [`06_seed_beta_ab.py`](06_seed_beta_ab.py); `holo_*` hooks in
+[`../embodied/seed_brain.py`](../embodied/seed_brain.py)
+
+The reel mounted on the hemispheric Seed brain (reward-modulated Hebbian
+plasticity; dv̂ enters the RPE that gates it). Paired 15k-step headless runs
+from the trained Seed-Hemi-64_af checkpoint, matched world seeds, β ∈
+{0, 0.6}, reel live after 5k. Nothing saved.
+
+| world | β | valence (post-cal) | eats | deaths | fore r | event r |
+|---|---|---|---|---|---|---|
+| 7 | 0.0 | −0.117 | 1 | 1 | −0.07 | −0.04 (n=16) |
+| 7 | 0.6 | −0.129 | 1 | 1 | +0.11 | **+0.64 (n=27)** |
+| 21 | 0.0 | **+0.420** | 0 | 0 | +0.26 | — (n=0) |
+| 21 | 0.6 | −0.037 | 1 | 1 | −0.26 | −0.01 (n=17) |
+
+Reading (n=2 pairs — no statistical claims, only mechanics and diagnosis):
+
+- **The loop closes mechanically.** dv̂ flows through the RPE into Hebbian
+  plasticity for 10k shaped steps without instability; mount overhead ~5%
+  (59 → 55 steps/s on CPU).
+- **The result is flat-to-negative, for the reason #6 predicted.** Seed-Hemi
+  eats 0-1 times per 15k steps — its life contains almost no valence events,
+  so the reel has nothing recallable to bootstrap (event-n: 0-27 per run).
+  β amplifies episodic structure; it cannot create it.
+- **World 21's big negative delta is attractor divergence, not a β effect.**
+  The β=0 run drifted into a *food-staring attractor*: valence climbs to
+  +0.48 with zero eats, sustained purely by `food_vision_reward`
+  (+0.002/step at max proximity). The shaped run's perturbed trajectory left
+  that basin and found danger instead. Two lessons: (i) single paired runs
+  in a chaotic plant measure trajectory divergence, not treatment effect;
+  (ii) **the reward landscape has a degenerate no-op optimum** — an agent
+  can farm vision-valence by parking in front of food it never eats, which
+  may be quietly shaping every embodied result in this folder.
+- One tantalizing crumb: the world-7 shaped run's reel reached event
+  foresight r = +0.64 (n=27) — when events exist, the recall is predictive.
+
+### Next: teleop as the structure injector
+
+The loop needs behavioral structure to amplify, and teleoperation is the
+direct way to inject it: teach approach→eat by demonstration, let the reel
+record it, then let dv̂ keep re-evoking the demonstrations after the teacher
+lets go — episodic memory as a demonstration amplifier. Planned mechanics:
+tag slides recorded under `teacher_forced` and weight demonstration episodes
+above self-play in recall. Separately: consider capping or saturating
+`food_vision_reward` to close the food-staring exploit.
