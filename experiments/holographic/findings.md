@@ -314,3 +314,90 @@ into a film during exploration, and let a familiar-smelling sensory state
 retrieve *what happened next last time* — a prediction signal the ESN's fading
 echo structurally cannot provide. Independent of all this, the #2a actionable
 fix still stands open: `wim_brain`'s readout discards `vel`, halving capacity.
+
+---
+
+## #5 — The reel meets the world: embodied episodic memory
+
+**Files:** [`05_embodied_episodic.py`](05_embodied_episodic.py),
+[`../embodied/holo_memory.py`](../embodied/holo_memory.py)
+
+### The slide architecture
+
+One film has a hard load threshold (~0.3N clean bindings, #4-A) and a
+*periodic* clock — timestamps alias after ~N steps, so an unbounded single
+film fails on time alone, independent of crosstalk. Instead of fighting
+either limit, long-term memory is a **reel of slides**: each slide is one
+film recording one bounded episode; the budget (or an event boundary — death,
+surprise) closes it and a fresh slide starts. The capacity wall becomes the
+episode length; the clock's finite horizon becomes the episode's internal
+timeline. Within-slide time is fine-grained (clock phases), across-slide time
+is ordinal (slide index) — matching the human signature of sharp
+within-episode order and fuzzy cross-episode dating. Episodes never
+crosstalk; the reel grows linearly. That linear growth is the honest price of
+permanence, and it is also the consolidation hook (merge/compress slides
+offline — the OCA circadian cycle).
+
+Pipeline: obs → PCA features → VQ codebook (64 prototypes = the symbol
+attractors) → phasor code ⊙ clock → current slide. Recording is event-based:
+a record happens only when the quantized symbol *changes*, so slide time
+advances with the world, not the frame rate (20k steps → ~3.5k records → 30
+slides). Valence rides along as a side tag per record. The phasor encoder is
+a fixed random projection into phase space, which makes #4-B's noise model
+exact: a cue's effective σ is `s·‖obs − prototype‖` — quantization error IS
+cue noise, and #4-B's tolerance (σ ≲ 2) becomes a concrete quantization
+budget (median σ_eff set to 1.2).
+
+### Two structural lessons the world taught (v1/v2 dead ends, documented)
+
+1. **A natural codebook is not a random codebook.** On a continuous state
+   manifold, nearest prototypes sit ~1 quantization-distance apart (σ-equiv
+   1.2-1.4) — neighboring symbols look like noisy copies of each other, where
+   #4's random symbols were near-orthogonal. SIC fidelity drops from ~100%
+   (toy) to ~90% (world), with confusions landing on neighbor prototypes.
+   PCA whitening made it *worse* (amplifies jitter directions; fidelity 82%):
+   denoise the metric, don't distort it.
+2. **Episodic addressing is trajectory addressing.** All occurrences of a
+   symbol have *identical* clean phasors, so a single-moment cue can only
+   find *a* time the symbol occurred — never *which* time (exact-moment
+   retrieval: 0.7%). Cueing with a short trajectory stub (last L transition
+   features, window-aligned scoring) disambiguates: exact-moment 0.7% → 20%
+   (L=3) → 34% (L=5), and effective separation grows with L. "When" is not a
+   property of a state; it is a property of a path through states.
+
+### Result (20k-step recording run; 300 queries; K=64, N=512, budget 120)
+
+Baselines: **marginal** (most common symbol) and **Markov-1** — a
+purpose-built global transition table over the same data, i.e. *semantic*
+memory competing against the reel's *episodic* retrieval.
+
+| | REPLAY (cue from recorded run) | TRANSFER (new world layout, never recorded) |
+|---|---|---|
+| retrieval precision (top-1 symbol) | 71% | 38% |
+| exact recorded moment found | 34% | — |
+| next-symbol: **film** | **52%** | **16%** |
+| next-symbol: markov | 38% | 15% |
+| next-symbol: marginal | 6% | 5% |
+| Δvalence forecast r | **+0.57** | +0.20 |
+
+- **Episodic beats semantic on its own past** (52% vs 38%): five retrieved
+  instances, voted, out-predict the full transition table — from one
+  superposed phasor vector per episode plus a decider.
+- **Transfer ties semantic** (16% vs 15%, both 3-4× marginal) in a world the
+  reel never saw: "what happened next last time" carries across layouts
+  because the symbols are egocentric.
+- **The valence tags ride back with recall** (Δvalence r=+0.57 replay, +0.20
+  transfer, vs 0 for persistence): the memory answers "did this kind of
+  moment get better or worse last time?" — precisely the RPE-gating signal
+  an embodied brain needs, and one the fading echo structurally cannot
+  provide (it forgets in ~16 steps; the reel never does).
+
+### Next
+
+- **Live brain integration**: mount `HoloEpisodicMemory` in a running brain
+  (seed/wim/ESN), recording reservoir state instead of raw observations, and
+  bias action selection by recalled Δvalence ("this smelled good/bad last
+  time").
+- **Consolidation**: SIC-clean and re-record old slides (crosstalk laundering),
+  merge near-duplicate episodes — sleep for the reel.
+- Still open from #2a: `wim_brain` readout discards `vel`, halving capacity.
