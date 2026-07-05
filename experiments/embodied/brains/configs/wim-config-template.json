@@ -31,6 +31,8 @@
   "turn_bias": 0.0,
   "_comment_normalize_dynamics": "Scale damping and substeps with grid size so waves travel similar proportional distances at any resolution.",
   "normalize_dynamics": true,
+  "_comment_readout_vel": "Read the full wave phasor [tanh(disp), tanh(vel)] instead of amplitude only. The medium holds z = disp + i*vel; dropping vel discards ~half the binding capacity (holographic experiment #2a). Old disp-only checkpoints are auto-migrated (vel weights start at 0).",
+  "readout_vel": false,
 
   "_comment_explore_noise": "Gaussian noise on fwd/turn outputs before tanh. Much lower than ESN (wave dynamics are gentler).",
   "explore_noise": 0.3,

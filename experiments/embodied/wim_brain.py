@@ -10,6 +10,9 @@ State:     disp  (N = grid_size²)         — wave displacement = reservoir h
 Dynamics:  spring physics, O(N sparse)    — replaces tanh(W_res @ h)
 Input:     obs[i] injected as wave kick at node input_nodes[i]
 Readout:   W_out @ tanh(disp)  →  (fwd, turn, eat)
+           with readout_vel=true: W_out @ [tanh(disp), tanh(vel)] — the full
+           wave phasor z = disp + i·vel; amplitude-only reading discards half
+           the medium's binding capacity (holographic experiment #2a)
 Learning:  RPE-gated eligibility trace (identical to brain.py)
 
 Key differences from ESN (brain.py)
@@ -113,6 +116,10 @@ WAVE_DEFAULT_CONFIG: dict = {
     "approach_bias":    0.05,       # forward W_out bias on visual nodes (0 = no bias)
     "turn_bias":        0.0,        # contralateral turn prior on visual nodes (0 = random turn row)
     "normalize_dynamics": True,     # scale damping/substeps with grid size for similar wave timing
+    "readout_vel":      False,      # read full wave state [tanh(disp), tanh(vel)] — the medium
+                                    # holds a complex phasor z = disp + i·vel, and amplitude-only
+                                    # readout discards half its binding capacity (holographic #2a);
+                                    # off by default so existing checkpoints reproduce exactly
     # Readout / learning  (same keys as brain.py for config compatibility)
     "explore_noise":    0.3,        # wave brain default — lower than ESN's 90
     "eat_threshold":    EAT_THRESHOLD,
@@ -661,11 +668,17 @@ class WimBrain:
             )
 
         # ── Readout (trained) ───────────────────────────────────────────────
+        # #2a: (disp, vel) are the in-phase and quadrature parts of the wave
+        # phasor; reading both doubles binding capacity over amplitude-only.
+        self._readout_vel = bool(cfg.get("readout_vel", False))
+        self._res_size = res_size
+        readout_dim = res_size * 2 if self._readout_vel else res_size
+
         rng = np.random.default_rng(seed + 99)
         _ref_res = 64 * 64                            # reference grid where 0.01 works
-        w_scale = 0.01 / np.sqrt(res_size / _ref_res) # scale-invariant init
+        w_scale = 0.01 / np.sqrt(readout_dim / _ref_res)  # scale-invariant init
         self.W_out = torch.from_numpy(
-            rng.standard_normal((3, res_size)).astype(np.float32) * w_scale
+            rng.standard_normal((3, readout_dim)).astype(np.float32) * w_scale
         ).to(self._dev)
         self.b_out = torch.zeros(3, dtype=torch.float32, device=self._dev)
 
@@ -695,11 +708,11 @@ class WimBrain:
                     self.W_out[1, right_hemi] -= turn_bias
 
         # ── Online learning state ───────────────────────────────────────────
-        self._trace        = torch.zeros(3, res_size, dtype=torch.float32, device=self._dev)
+        self._trace        = torch.zeros(3, readout_dim, dtype=torch.float32, device=self._dev)
         self._valence_pred = 0.0
         self._last_action  = torch.zeros(3,        dtype=torch.float32, device=self._dev)
         self._executed_action = torch.zeros(3,     dtype=torch.float32, device=self._dev)
-        self._last_h       = torch.zeros(res_size, dtype=torch.float32, device=self._dev)
+        self._last_h       = torch.zeros(readout_dim, dtype=torch.float32, device=self._dev)
         self._has_executed_action = False
         self._teacher_forced = False
 
@@ -756,6 +769,9 @@ class WimBrain:
             x = torch.cat([x, prev_action])
 
         h = self._reservoir.step(x, steps=self._wave_substeps)  # torch tensor on device
+        if self._readout_vel:
+            # full phasor readout: in-phase (disp) + quadrature (vel), #2a
+            h = torch.cat([h, torch.tanh(self._reservoir._vel)])
         self._last_h.copy_(h)
 
         raw   = self.W_out @ h + self.b_out
@@ -861,7 +877,24 @@ class WimBrain:
 
     def load(self, path: str) -> None:
         data = np.load(path)
-        self.W_out.copy_(torch.from_numpy(data["W_out"].astype(np.float32)))
+        w = data["W_out"].astype(np.float32)
+        if w.shape[1] != self.W_out.shape[1]:
+            if self._readout_vel and w.shape[1] * 2 == self.W_out.shape[1]:
+                # amplitude-only checkpoint into phasor readout: vel weights
+                # start at zero and are learned online (#2a migration)
+                w = np.concatenate([w, np.zeros_like(w)], axis=1)
+                print(f"  [readout_vel] migrated {path}: disp-only W_out "
+                      f"zero-padded to (3, {w.shape[1]})")
+            elif (not self._readout_vel
+                  and self.W_out.shape[1] * 2 == w.shape[1]):
+                print(f"  [readout_vel] WARNING: {path} was trained with "
+                      f"readout_vel=true; dropping vel half of W_out")
+                w = w[:, : self.W_out.shape[1]]
+            else:
+                raise ValueError(
+                    f"W_out shape {w.shape} incompatible with readout "
+                    f"dim {self.W_out.shape[1]}")
+        self.W_out.copy_(torch.from_numpy(w))
         self.b_out.copy_(torch.from_numpy(data["b_out"].astype(np.float32)))
         self._valence_pred = float(data["valence_pred"])
         if "edge_tension" in data and self._hebbian_plasticity:
@@ -898,7 +931,8 @@ class WimBrain:
 
     @property
     def _last_h_motor(self) -> torch.Tensor:
-        return self._last_h
+        # brain_viz reshapes this to the grid — always hand it the disp half
+        return self._last_h[: self._res_size]
 
 
 # ── CLI helpers ──────────────────────────────────────────────────────────────────
