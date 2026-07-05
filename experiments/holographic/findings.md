@@ -397,7 +397,91 @@ memory competing against the reel's *episodic* retrieval.
 - **Live brain integration**: mount `HoloEpisodicMemory` in a running brain
   (seed/wim/ESN), recording reservoir state instead of raw observations, and
   bias action selection by recalled Δvalence ("this smelled good/bad last
-  time").
+  time"). → done in #6.
 - **Consolidation**: SIC-clean and re-record old slides (crosstalk laundering),
   merge near-duplicate episodes — sleep for the reel.
+- Still open from #2a: `wim_brain` readout discards `vel`, halving capacity.
+
+---
+
+## #6 — The reel mounted in a live brain
+
+**Files:** [`../embodied/holo_mount.py`](../embodied/holo_mount.py),
+hooks in [`../embodied/brain.py`](../embodied/brain.py) (config-gated,
+default off)
+
+`HoloMount` wraps the #5 reel as an online component for any reservoir brain:
+feed it the hidden state (or observation) and the reward each step, and it
+returns **dv̂** — the recalled Δvalence of "the last time the recent
+trajectory looked like this". This is episodic control in the film substrate
+(cf. Blundell's Model-Free Episodic Control): instead of a k-NN table of
+(state, value) pairs, the store is one superposed phasor vector per episode,
+addressed by trajectory-stub recognition, with the recalled value riding back
+as side tags. Everything is online: it calibrates itself (random-projection
+sketch for reservoirs > 256 dims → PCA → VQ → phasor scale), then records,
+recalls, and keeps an honest scorecard — every dv̂ is held as a pending
+prediction and resolved against what valence actually did (**foresight r**),
+with matches inside the query's own recent tail excluded (recalling one
+second ago is not foresight).
+
+In `brain.py` the mount is opt-in via `holo_*` config keys; `learn()` shapes
+`reward + β·dv̂` (β=0 default = pure observer), episode resets close slides,
+and the reel persists beside the checkpoint (`.npz.holo.npz`).
+
+### Engineering lessons (each one earned the hard way)
+
+1. **The active slide is working memory.** Re-running SIC on the active slide
+   every query is O(count²) per step — and pointless: the writer knows what
+   it just wrote. Closed slides are read holographically (SIC once, cached
+   forever — the past exists only in the medium); the present episode is read
+   from its session-known symbols. Past = film, present = echo: the #3
+   architecture, now forced on us by a profiler.
+2. **Track the situation, not the state.** A noisy reservoir
+   (noise_scale 90) flips its VQ symbol every frame — the reel recorded
+   framerate noise (~1 record/step, dv̂≡0). EMA-smoothing the sketched state
+   (τ≈12 steps) plus a 2-step dwell gate restored #5's natural transition
+   rate (~0.17/step). Event-based memory needs an event-rate signal.
+3. `OMP_NUM_THREADS` matters when numpy recall shares a process with a torch
+   reservoir (36 min of sys-time thrash → 388% CPU clean).
+
+### Live results
+
+Mounted on **Bob-16k** (trained 16384-unit ESN checkpoint, RTX 4090, frozen
+readout, 35k steps, observe-only): runs at ~240 steps/s, records ~0.16
+transitions/step into ~40 slides, retrieval precision ~37% — but **foresight
+r ≈ 0**, with almost no valence events (10-70 in ~1700 resolved predictions).
+Same result whether the reel watches the reservoir state or the raw
+observation.
+
+Self-test (`python holo_mount.py`): the *same mount* under the structured #5
+explorer policy (approach food / flee danger / wander):
+
+| resolved predictions | foresight r (all) | event r (\|Δv\|>0.05) | events |
+|---|---|---|---|
+| ~1800 | **+0.09 → +0.14** | **+0.15 → +0.21** | ~35% of resolutions |
+
+The event-level r ≈ +0.2 matches #5's transfer r = +0.20 almost exactly —
+live foresight *is* the transfer regime, as it should be (the future is
+never in the reel).
+
+### The finding
+
+**The reel is only as prophetic as the life it records.** Bob's actions are
+exploration-noise-dominated (explore_noise 90 through tanh ≈ near-random
+motor babble), so trajectory motifs don't repeat and valence events are rare
+at the transition timescale; the structured explorer lives in repeating
+approach→eat / drift→danger motifs, and the same memory extracts a real
+predictive signal from them. Episodic memory and behavioral structure are
+co-dependent: the memory can only pay off for an agent whose policy already
+produces recurring situations — which is precisely the RL bootstrapping
+argument for β > 0 (memory-shaped reward → more structured behavior → more
+prophetic memory), and the right next experiment once a brain with
+structured behavior is learning online.
+
+### Next
+
+- β > 0 A/B on a brain with structured behavior (teleop-taught or Seed-Hemi):
+  does memory-shaped RPE close the loop?
+- Consolidation: decode, deduplicate, re-record — sleep for the reel.
+- Confidence gating: dv̂ should only speak when retrieval score is high.
 - Still open from #2a: `wim_brain` readout discards `vel`, halving capacity.

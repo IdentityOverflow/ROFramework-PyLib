@@ -163,7 +163,7 @@ def main(seed=0, pretrain_steps=6000, memory_steps=20000, transfer_steps=8000):
     for si, slide in enumerate(memory.slides):
         if slide.count == 0:
             continue
-        dec = memory._decode_slide(slide)
+        dec = memory._decode_slide(slide, force_sic=True)
         truth = [log["sym"][i] for i in range(len(log["sym"]))
                  if log["slide"][i] == si]
         agree += sum(int(a == b) for a, b in zip(dec, truth))

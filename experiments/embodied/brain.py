@@ -152,6 +152,14 @@ DEFAULT_CONFIG: dict = {
     # RO Framework
     "assess_every":    ASSESS_EVERY,
     "log_capacity":    LOG_CAPACITY,
+    # Holographic episodic reel (experiments/holographic #3-#5, holo_mount.py)
+    "holo_enabled":     False,
+    "holo_beta":        0.0,    # RPE shaping weight for recalled Δvalence (0 = observe only)
+    "holo_source":      "state",  # "state" = reservoir hidden state, "obs" = raw observation
+    "holo_calib_steps": 6000,   # steps of experience before the reel goes live
+    "holo_budget":      120,    # records per slide (#4-A load threshold)
+    "holo_context":     5,      # trajectory-stub length for recall cues
+    "holo_horizon":     3,      # transitions ahead for Δvalence recall/foresight
     # Arch
     "seed":            42,
     "action_feedback": False,
@@ -293,6 +301,23 @@ class EmbodiedBrain:
             min_samples     = 50,
         )
 
+        # ── Holographic episodic reel (optional) ──────────────────────────────
+        self._holo = None
+        self._holo_beta = float(cfg.get("holo_beta", 0.0))
+        self._holo_source = str(cfg.get("holo_source", "state"))
+        if cfg.get("holo_enabled"):
+            from holo_mount import HoloMount  # noqa: PLC0415
+            self._holo = HoloMount(
+                state_dim   = OBS_DIM if self._holo_source == "obs" else res_size,
+                calib_steps = int(cfg.get("holo_calib_steps", 6000)),
+                budget      = int(cfg.get("holo_budget", 120)),
+                context     = int(cfg.get("holo_context", 5)),
+                horizon     = int(cfg.get("holo_horizon", 3)),
+                seed        = seed,
+            )
+            print(f"[holo] reel mounted (beta={self._holo_beta}, "
+                  f"calibrating for {cfg.get('holo_calib_steps', 6000)} steps)")
+
         # ── Phase 2 stub ───────────────────────────────────────────────────────
         if carrier:
             print("[brain] --carrier flag set: Phase 2 FrequencyTracker not yet "
@@ -347,6 +372,16 @@ class EmbodiedBrain:
     @torch.no_grad()
     def learn(self, reward: float) -> None:
         """RPE-gated eligibility trace update.  Call once per step after forward()."""
+        if self._holo is not None:
+            # The reel records regardless of learning_enabled (observe-only
+            # mounts still remember); dv̂ shapes the reward only when beta > 0.
+            if self._holo_source == "obs":
+                src = (self._last_obs if self._last_obs is not None
+                       else np.zeros(OBS_DIM, dtype=np.float32))
+            else:
+                src = self._last_h.detach().cpu().numpy()
+            dv = self._holo.step(src, reward)
+            reward = reward + self._holo_beta * dv
         if not self.learning_enabled:
             return
         rpe = reward - self._valence_pred
@@ -385,6 +420,8 @@ class EmbodiedBrain:
         self._last_h.zero_()
         self._has_executed_action = False
         self._teacher_forced = False
+        if self._holo is not None:
+            self._holo.boundary()
 
     # ── Knowledge tracker ───────────────────────────────────────────────────────
 
@@ -399,12 +436,17 @@ class EmbodiedBrain:
                  W_out        = self.W_out.cpu().numpy(),
                  b_out        = self.b_out.cpu().numpy(),
                  valence_pred = np.array(self._valence_pred))
+        if self._holo is not None:
+            self._holo.save(path + ".holo.npz")
 
     def load(self, path: str) -> None:
         data = np.load(path)
         self.W_out.copy_(torch.from_numpy(data["W_out"].astype(np.float32)))
         self.b_out.copy_(torch.from_numpy(data["b_out"].astype(np.float32)))
         self._valence_pred = float(data["valence_pred"])
+        holo_path = path + ".holo.npz"
+        if self._holo is not None and os.path.exists(holo_path):
+            self._holo.load(holo_path)
 
     # ── Properties ──────────────────────────────────────────────────────────────
 
@@ -523,6 +565,8 @@ def _log_step(brain: EmbodiedBrain, step: int, reward_sum: float, log_every: int
     """Print step summary + K metrics and write one CSV row."""
     row = _log(step, reward_sum, log_every, brain._valence_pred,
                brain.w_out_norm, eat_count, episodes, fwd_sum, turn_sum)
+    if brain._holo is not None:
+        print(f"  {brain._holo.stats()}")
     _log_knowledge(brain, step, csv_row=row)
     row.update(_compute_extra_k(brain))
     if csv_writer is not None:
@@ -761,6 +805,12 @@ def _build_brain(cfg: dict, carrier: bool) -> "EmbodiedBrain":
             "ASSESS_EVERY":    cfg["assess_every"],
             "LOG_CAPACITY":    cfg["log_capacity"],
             "teacher_force_lr": cfg.get("teacher_force_lr", 0.0),
+            "holo_enabled":     cfg.get("holo_enabled", False),
+            "holo_beta":        cfg.get("holo_beta", 0.0),
+            "holo_calib_steps": cfg.get("holo_calib_steps", 6000),
+            "holo_budget":      cfg.get("holo_budget", 120),
+            "holo_context":     cfg.get("holo_context", 5),
+            "holo_horizon":     cfg.get("holo_horizon", 3),
         },
         device          = cfg["device"],
         action_feedback = cfg["action_feedback"],

@@ -123,13 +123,16 @@ class Slide:
     def __init__(self, n: int) -> None:
         self.film = np.zeros(n, dtype=complex)
         self.tags: list[float] = []
+        self.written: list[int] = []   # session-known symbols (working memory)
         self.count = 0
         self.closed = False
         self._decoded: np.ndarray | None = None
 
-    def record(self, phasor: np.ndarray, omega: np.ndarray, tag: float) -> None:
+    def record(self, sym: int, phasor: np.ndarray, omega: np.ndarray,
+               tag: float) -> None:
         self.film += phasor * np.exp(-1j * omega * self.count)
         self.tags.append(tag)
+        self.written.append(int(sym))
         self.count += 1
         self._decoded = None
 
@@ -148,14 +151,17 @@ class HoloEpisodicMemory:
     """
 
     def __init__(self, encoder: PhasorEncoder, codebook: VQCodebook,
-                 budget: int = 120) -> None:
+                 budget: int = 120, min_dwell: int = 1) -> None:
         self.encoder = encoder
         self.codebook = codebook
         self.budget = budget
+        self.min_dwell = min_dwell
         self.n = encoder.n
         self.omega = 2 * np.pi * np.arange(1, self.n + 1) / self.n
         self.slides: list[Slide] = [Slide(self.n)]
         self.last_sym: int | None = None
+        self._cand_sym: int | None = None
+        self._cand_dwell = 0
 
     # ── recording ──────────────────────────────────────────────────────────
 
@@ -169,12 +175,23 @@ class HoloEpisodicMemory:
         """
         sym, _ = self.codebook.quantize(obs)
         if sym == self.last_sym:
+            self._cand_sym, self._cand_dwell = None, 0
             return None
+        # dwell gate: a new symbol must persist min_dwell consecutive calls
+        # before it counts as a transition (rejects quantization flicker)
+        if self.min_dwell > 1:
+            if sym == self._cand_sym:
+                self._cand_dwell += 1
+            else:
+                self._cand_sym, self._cand_dwell = sym, 1
+            if self._cand_dwell < self.min_dwell:
+                return None
+            self._cand_sym, self._cand_dwell = None, 0
         slide = self.slides[-1]
         if slide.closed or slide.count >= self.budget:
             self.boundary()
             slide = self.slides[-1]
-        slide.record(self.codebook.phasors[sym], self.omega, tag)
+        slide.record(sym, self.codebook.phasors[sym], self.omega, tag)
         self.last_sym = sym
         return sym
 
@@ -187,9 +204,19 @@ class HoloEpisodicMemory:
 
     # ── slide readout (SIC, from #4-A) ─────────────────────────────────────
 
-    def _decode_slide(self, slide: Slide) -> np.ndarray:
-        """SIC-decode every position of a slide; cached until slide changes."""
-        if slide._decoded is not None:
+    def _decode_slide(self, slide: Slide, force_sic: bool = False) -> np.ndarray:
+        """Read a slide's symbol sequence.
+
+        Closed slides are read holographically (SIC through the film, decoded
+        once and cached — the past exists only in the medium). The ACTIVE
+        slide is the present episode: the brain knows what it just wrote
+        (working memory), so its session-known symbols are returned directly
+        unless force_sic is set — re-running full SIC on every new record
+        would be O(count²) per step for information the writer already has.
+        """
+        if not slide.closed and not force_sic and slide.written:
+            return np.asarray(slide.written, dtype=int)
+        if slide._decoded is not None and not force_sic:
             return slide._decoded
         cb = self.codebook.phasors
         t_steps = slide.count
@@ -215,16 +242,26 @@ class HoloEpisodicMemory:
     # ── episodic query (recognition scan, from #4-B) ───────────────────────
 
     def _scan_index(self):
-        """Per-slide clean phasor matrices; rebuilt when the reel grows."""
-        if getattr(self, "_index_records", -1) != self.n_records:
-            self._index = []
-            for si, slide in enumerate(self.slides):
-                if slide.count < 2:
-                    continue
-                cleaned = self._decode_slide(slide)
-                self._index.append((si, self.codebook.phasors[cleaned]))
-            self._index_records = self.n_records
-        return self._index
+        """Per-slide clean phasor matrices.
+
+        Closed slides are immutable: their phasor stacks are cached forever.
+        Only the active slide's stack is rebuilt per call.
+        """
+        if not hasattr(self, "_closed_cache"):
+            self._closed_cache = {}
+        index = []
+        for si, slide in enumerate(self.slides):
+            if slide.count < 2:
+                continue
+            if slide.closed:
+                if si not in self._closed_cache:
+                    self._closed_cache[si] = (
+                        self.codebook.phasors[self._decode_slide(slide)])
+                index.append((si, self._closed_cache[si]))
+            else:
+                index.append((si, self.codebook.phasors[
+                    np.asarray(slide.written, dtype=int)]))
+        return index
 
     def query(self, recent, horizon: int = 3, top_m: int = 1):
         """'When was I in a situation like this, and what happened next?'
