@@ -215,3 +215,102 @@ Cost — capacity (mean film recall vs. number of symbols stored):
   — two subsystems, like working memory vs. long-term memory. This is the linear
   half of holography; clean recall from a *messy* cue still needs a nonlinear
   decider (#2b), which is the future Seed coherence-gate.
+
+---
+
+## #4 — Nonlinear Recall: the decider, delivered
+
+**File:** [`04_nonlinear_recall.py`](04_nonlinear_recall.py)
+
+#3 left two walls, both artifacts of *linear* recall: the capacity wall
+(crosstalk past ~N superposed symbols) and the messy-cue wall (#2b: linear
+dynamics cannot "decide"). Both are attacked with the same weapon — nonlinear
+decisions fed back into the recall loop.
+
+### A — Capacity: the film is a CDMA channel
+
+The film is literally CDMA: symbols spread by near-orthogonal codes (the clock
+phases), superposed in one medium. Linear recall = matched filter — and telecom
+solved the matched filter's crosstalk wall decades ago with **successive
+interference cancellation** (SIC): decode the most confident position
+(top1−top2 margin), subtract its reconstruction from the film, re-decode the
+rest against the cleaned residual. Then relax: coordinate-descent sweeps,
+re-deciding each position against everything currently explained.
+
+Result (N=512, codebook 32, 6 trials, greedy batch 5%):
+
+| stored | 50 | 100 | 150 | 200 | 300 | 400 | 600 |
+|---|---|---|---|---|---|---|---|
+| linear (#3) | 97% | 72% | 53% | 42% | 26% | 21% | 13% |
+| SIC | 100% | 100% | 97% | 51% | 22% | 16% | 10% |
+| SIC+relax | 100% | 100% | **100%** | 27% | 14% | 11% | 8% |
+
+- **The near-perfect region tripled** (~50 → ~150 stored symbols at ≥97%).
+  Below the wall, decisions bootstrap: each correct subtraction cleans the
+  medium for the next.
+- **The wall itself is a phase transition, not a slope.** Between 150 and 200
+  stored, everything collapses at once. This is the known SIC load threshold
+  from CDMA/statistical physics: below it errors self-correct, above it they
+  avalanche. Relaxation makes the signature crisp — it *helps* below the wall
+  (97→100% at 150) and *hurts* above it (51→27% at 200), descending to a wrong
+  fixed point. Rhymes with #2b's "iterating hurts": iteration is only as good
+  as the basin it starts in.
+- Batch schedule matters near the wall: greedy 25% batches lose to careful 3-5%
+  batches (82% → 98% at 150) — but no schedule crosses the threshold.
+
+### B — Messy cue: episodic recall through decisions
+
+A first design failed structurally, and the failure rhymes with #2b: cueing
+with a **masked timestamp** is ill-posed — the clock manifold has one degree of
+freedom, so a small fragment of reference phases pins down k with no memory
+needed (the fragment "already determines the whole", the same trap that
+flattened #2b's smooth patterns). Worse, in a symbol+time resonator loop every
+symbol that occurs *anywhere* in the sequence is a stable attractor with full
+coherence — the loop forgets the cue. Documented dead end.
+
+The well-posed messy cue is **content**, and the well-posed question is
+**episodic**: given a phase-noised version of a stored symbol, the cue alone
+can at best re-identify the symbol (codebook prior) — it can never say *when*
+it happened or *what came next*. Only the film can. Mechanism: a recognition
+scan over the clock manifold with the decider inside the loop — for each
+position, read the film, **project onto the codebook** (nonlinear cleanup),
+score the clean candidate against the noisy cue; best match gives k, read k+1
+for the episodic answer.
+
+Result (N=512, codebook 64, 50 unique stored symbols, cue phase noise σ):
+
+| cue noise σ | 0.5 | 1.5 | 2.0 | 2.5 | 3.0 | 3.5 |
+|---|---|---|---|---|---|---|
+| identity, direct (floor, no film) | 100% | 100% | 88% | 6% | 4% | 4% |
+| when — k found (film only) | 86% | 86% | 82% | 6% | 6% | 4% |
+| **what came next (film only, chance 2%)** | **82%** | **76%** | **78%** | 6% | 6% | 4% |
+
+- **Episodic retrieval works**: "what came next" is unanswerable from the cue
+  (chance = 2%) and the film delivers it at ~80% from cues noisy up to σ=2.0
+  (cue-to-symbol correlation e^{−σ²/2} ≈ 0.14 — the cue is barely recognizable).
+- **Noise tolerance tracks the identity floor**: both collapse together at
+  σ≈2.5. The bottleneck is cue recognition, not film readout — the film's
+  internal decode at 50 stored is ~97% clean.
+- This is completion-through-**decisions** where #2b proved
+  completion-through-**dynamics** impossible: the win appears exactly when
+  recall passes through nonlinear projections onto known structure (codebook
+  attractors, 1-dof clock manifold). The medium alone earns nothing (#2a/#2b);
+  the medium plus a decider earns episodic memory.
+
+### What #3 + #4 establish together
+
+The architecture is now complete in miniature and every part is earned:
+
+1. **Reservoir** — fast, fading, nonlinear processing (working memory).
+2. **Holographic film** — slow, permanent, content-addressable store (#3),
+   with a hard but *known* load threshold (~0.3N symbols for clean SIC recall).
+3. **Nonlinear decider** — projection onto structured priors turns the film
+   from a lookup table into an associative episodic memory (#4): a corrupted
+   *content* cue retrieves *time* and *temporal context*.
+
+This is the Seed coherence-gate story with numbers attached, and it is the
+spec for the embodied next step: record the agent's (reservoir state ⊙ clock)
+into a film during exploration, and let a familiar-smelling sensory state
+retrieve *what happened next last time* — a prediction signal the ESN's fading
+echo structurally cannot provide. Independent of all this, the #2a actionable
+fix still stands open: `wim_brain`'s readout discards `vel`, halving capacity.
