@@ -138,6 +138,15 @@ WAVE_DEFAULT_CONFIG: dict = {
     # RO Framework
     "assess_every":     ASSESS_EVERY,
     "log_capacity":     LOG_CAPACITY,
+    # Holographic episodic reel (experiments/holographic #3-#7, holo_mount.py)
+    "holo_enabled":     False,
+    "holo_beta":        0.0,      # RPE shaping weight for recalled Δvalence
+    "holo_source":      "obs",    # "obs" or "state" (readout vector)
+    "holo_calib_steps": 6000,
+    "holo_budget":      120,
+    "holo_context":     5,
+    "holo_horizon":     6,
+    "holo_demo_weight": 2.5,      # recall priority for teacher-forced records
     # Arch
     "seed":             42,
     "action_feedback":  False,
@@ -743,6 +752,25 @@ class WimBrain:
                 res_size, 8, dtype=torch.float32, device=self._dev,
             )
 
+        # ── Holographic episodic reel (optional) ───────────────────────────
+        self._holo = None
+        self._holo_beta = float(cfg.get("holo_beta", 0.0))
+        self._holo_source = str(cfg.get("holo_source", "obs"))
+        if cfg.get("holo_enabled"):
+            from holo_mount import HoloMount  # noqa: PLC0415
+            self._holo = HoloMount(
+                state_dim   = OBS_DIM if self._holo_source == "obs"
+                              else int(self._last_h.shape[0]),
+                calib_steps = int(cfg.get("holo_calib_steps", 6000)),
+                budget      = int(cfg.get("holo_budget", 120)),
+                context     = int(cfg.get("holo_context", 5)),
+                horizon     = int(cfg.get("holo_horizon", 6)),
+                demo_weight = float(cfg.get("holo_demo_weight", 2.5)),
+                seed        = seed,
+            )
+            print(f"[holo] reel mounted on WimBrain (beta={self._holo_beta}, "
+                  f"source={self._holo_source})")
+
         # ── RO Framework — Observer + KnowledgeTracker ─────────────────────
         self._observer = Observer(
             name          = "wim_brain",
@@ -799,6 +827,16 @@ class WimBrain:
     @torch.no_grad()
     def learn(self, reward: float) -> None:
         """RPE-gated eligibility trace update.  Call once per step after forward()."""
+        if self._holo is not None:
+            # The reel records even with learning frozen; dv̂ shapes the
+            # reward only when beta > 0 (episodic value bootstrap).
+            if self._holo_source == "obs":
+                src = (self._last_obs if self._last_obs is not None
+                       else np.zeros(OBS_DIM, dtype=np.float32))
+            else:
+                src = self._last_h.detach().cpu().numpy()
+            dv = self._holo.step(src, reward, taught=self._teacher_forced)
+            reward = reward + self._holo_beta * dv
         if not self.learning_enabled:
             return
         rpe = reward - self._valence_pred
@@ -853,6 +891,8 @@ class WimBrain:
         self._last_h.zero_()
         self._has_executed_action = False
         self._teacher_forced = False
+        if self._holo is not None:
+            self._holo.boundary()
         if self._hebbian_plasticity:
             self._hebb_trace.zero_()
         # NOTE: _per_edge_tension persists across episodes (structural memory)
@@ -874,6 +914,8 @@ class WimBrain:
         if self._hebbian_plasticity and self._reservoir._per_edge_tension is not None:
             save_dict['edge_tension'] = self._reservoir._per_edge_tension.cpu().numpy()
         np.savez(path, **save_dict)
+        if self._holo is not None:
+            self._holo.save(path + ".holo.npz")
 
     def load(self, path: str) -> None:
         data = np.load(path)
@@ -901,6 +943,9 @@ class WimBrain:
             self._reservoir._per_edge_tension.copy_(
                 torch.from_numpy(data["edge_tension"].astype(np.float32))
             )
+        holo_path = path + ".holo.npz"
+        if self._holo is not None and os.path.exists(holo_path):
+            self._holo.load(holo_path)
 
     # ── Properties ──────────────────────────────────────────────────────────────
 

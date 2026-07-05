@@ -131,6 +131,7 @@ SEED_DEFAULT_CONFIG: dict = {
     "holo_budget":      120,
     "holo_context":     5,
     "holo_horizon":     6,
+    "holo_demo_weight": 2.5,
     # Arch
     "seed":             42,
     "action_feedback":  False,
@@ -448,6 +449,7 @@ class SeedBrain:
         self._last_action = np.zeros(3, dtype=np.float32)
         self._executed_action = np.zeros(3, dtype=np.float32)
         self._has_executed_action = False
+        self._teacher_forced = False
 
         # -- RO Framework ------------------------------------------------------
         self._observer = Observer(
@@ -479,6 +481,7 @@ class SeedBrain:
                 budget=int(cfg.get("holo_budget", 120)),
                 context=int(cfg.get("holo_context", 5)),
                 horizon=int(cfg.get("holo_horizon", 6)),
+                demo_weight=float(cfg.get("holo_demo_weight", 2.5)),
                 seed=seed,
             )
             print(f"[holo] reel mounted on SeedBrain (beta={self._holo_beta}, "
@@ -538,7 +541,7 @@ class SeedBrain:
                        else np.zeros(OBS_DIM, dtype=np.float32))
             else:
                 src = self._holo_state_vec()
-            dv = self._holo.step(src, reward)
+            dv = self._holo.step(src, reward, taught=self._teacher_forced)
             reward = reward + self._holo_beta * dv
         if not self.learning_enabled:
             return
@@ -546,12 +549,14 @@ class SeedBrain:
         self._valence_pred += self._critic_lr * rpe
         self._seed_net.set_reward_modulator(rpe)
 
-    def set_executed_action(self, action, **_kwargs) -> None:
+    def set_executed_action(self, action, teacher_forced: bool = False,
+                            **_kwargs) -> None:
         """Record the action the world actually executed (interface compat)."""
         if hasattr(action, 'numpy'):
             action = action.numpy()
         self._executed_action = np.asarray(action, dtype=np.float32)
         self._has_executed_action = True
+        self._teacher_forced = bool(teacher_forced)
 
     # -- Episode reset ---------------------------------------------------------
 

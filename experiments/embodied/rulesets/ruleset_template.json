@@ -46,6 +46,8 @@
   "_comment_danger_vision_penalty": "Valence penalty per step for danger visible in forward cone (proximity-scaled). Provides approach gradient.",
   "food_vision_reward": 0.002,
   "_comment_food_vision_reward": "Valence reward per step for food visible in forward cone (proximity-scaled). Kept ≤ danger penalty so avoidance dominates.",
+  "food_vision_cap": 0.12,
+  "_comment_food_vision_cap": "Vision alone cannot push valence above this (same pattern as other_entity_touch_cap). Without it, staring at food without eating is a degenerate optimum: valence climbs to ~+0.5 at the gain/decay equilibrium, outscoring agents that actually eat.",
   "danger_contact_valence_floor": -0.5,
   "_comment_danger_contact_valence_floor": "Valence is clamped to this value on direct danger contact (before life drain kicks in). Range [-1, 0]. -0.5 = moderate pain, -1.0 = maximum pain immediately on touch."
 }

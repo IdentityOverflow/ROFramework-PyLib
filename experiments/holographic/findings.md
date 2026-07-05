@@ -447,11 +447,13 @@ and the reel persists beside the checkpoint (`.npz.holo.npz`).
 ### Live results
 
 Mounted on **Bob-16k** (trained 16384-unit ESN checkpoint, RTX 4090, frozen
-readout, 35k steps, observe-only): runs at ~240 steps/s, records ~0.16
-transitions/step into ~40 slides, retrieval precision ~37% — but **foresight
-r ≈ 0**, with almost no valence events (10-70 in ~1700 resolved predictions).
-Same result whether the reel watches the reservoir state or the raw
-observation.
+readout, 35k steps, observe-only): runs at ~240 steps/s. Source matters in
+texture but not in conclusion (an earlier config-passthrough bug made both
+"sources" the reservoir state; fixed and re-run): **state**-sourced — ~0.16
+transitions/step, precision ~37%, foresight r ≈ 0 with almost no valence
+events (10-70); **obs**-sourced — ~0.06 transitions/step (EMA'd observations
+are calmer), precision ~32%, far more events (358) but foresight mildly
+*negative* (−0.06 overall, −0.11 events). Either way: no usable signal.
 
 Self-test (`python holo_mount.py`): the *same mount* under the structured #5
 explorer policy (approach food / flee danger / wander):

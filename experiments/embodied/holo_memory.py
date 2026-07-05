@@ -123,15 +123,17 @@ class Slide:
     def __init__(self, n: int) -> None:
         self.film = np.zeros(n, dtype=complex)
         self.tags: list[float] = []
+        self.taught: list[int] = []    # 1 = recorded under teacher forcing
         self.written: list[int] = []   # session-known symbols (working memory)
         self.count = 0
         self.closed = False
         self._decoded: np.ndarray | None = None
 
     def record(self, sym: int, phasor: np.ndarray, omega: np.ndarray,
-               tag: float) -> None:
+               tag: float, taught: bool = False) -> None:
         self.film += phasor * np.exp(-1j * omega * self.count)
         self.tags.append(tag)
+        self.taught.append(int(taught))
         self.written.append(int(sym))
         self.count += 1
         self._decoded = None
@@ -151,11 +153,16 @@ class HoloEpisodicMemory:
     """
 
     def __init__(self, encoder: PhasorEncoder, codebook: VQCodebook,
-                 budget: int = 120, min_dwell: int = 1) -> None:
+                 budget: int = 120, min_dwell: int = 1,
+                 demo_weight: float = 1.0) -> None:
         self.encoder = encoder
         self.codebook = codebook
         self.budget = budget
         self.min_dwell = min_dwell
+        # Recall-score multiplier for records written under demonstration
+        # (teacher forcing): "what did the teacher do here" outranks "what
+        # did I stumble into last time". 1.0 = no preference.
+        self.demo_weight = demo_weight
         self.n = encoder.n
         self.omega = 2 * np.pi * np.arange(1, self.n + 1) / self.n
         self.slides: list[Slide] = [Slide(self.n)]
@@ -165,7 +172,8 @@ class HoloEpisodicMemory:
 
     # ── recording ──────────────────────────────────────────────────────────
 
-    def observe(self, obs: np.ndarray, tag: float = 0.0) -> int | None:
+    def observe(self, obs: np.ndarray, tag: float = 0.0,
+                taught: bool = False) -> int | None:
         """Record obs if its symbol differs from the last recorded one.
 
         Event-based sampling: consecutive same-symbol frames collapse into
@@ -191,7 +199,8 @@ class HoloEpisodicMemory:
         if slide.closed or slide.count >= self.budget:
             self.boundary()
             slide = self.slides[-1]
-        slide.record(sym, self.codebook.phasors[sym], self.omega, tag)
+        slide.record(sym, self.codebook.phasors[sym], self.omega, tag,
+                     taught=taught)
         self.last_sym = sym
         return sym
 
@@ -294,6 +303,10 @@ class HoloEpisodicMemory:
             combined = np.zeros(count - L)
             for j in range(L):
                 combined += m[j: count - L + j, j]
+            if self.demo_weight != 1.0:
+                slide = self.slides[si]
+                t = np.asarray(slide.taught[L - 1: count - 1], dtype=float)
+                combined *= 1.0 + (self.demo_weight - 1.0) * t
             for kk in range(count - L):
                 scored.append((combined[kk], si, kk + L - 1))
         if not scored:

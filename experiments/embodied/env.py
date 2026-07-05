@@ -159,6 +159,11 @@ SPAWN_NEAR_DIST: float = ENTITY_RADIUS * 4   # ~72 px  — close but not on top
 #   both are visible.  No effect while already eating (contact spike dominates).
 DANGER_VISION_PENALTY:        float = 0.002
 FOOD_VISION_REWARD:           float = 0.002
+# Vision alone cannot push valence above this (same pattern as
+# OTHER_ENTITY_TOUCH_CAP).  Without it, parking in front of food and staring
+# at it forever is a degenerate optimum: valence climbs to ~+0.5 with zero
+# eats (gain/decay equilibrium), outscoring agents that actually eat.
+FOOD_VISION_CAP:              float = 0.12
 DANGER_CONTACT_VALENCE_FLOOR: float = -0.5   # valence is clamped to this on danger touch
 
 
@@ -312,6 +317,7 @@ class World:
         self._other_entity_touch_cap = float(c.get("other_entity_touch_cap", OTHER_ENTITY_TOUCH_CAP))
         self._danger_vis_penalty          = float(c.get("danger_vision_penalty",        DANGER_VISION_PENALTY))
         self._food_vis_reward             = float(c.get("food_vision_reward",           FOOD_VISION_REWARD))
+        self._food_vision_cap             = float(c.get("food_vision_cap",              FOOD_VISION_CAP))
         self._danger_contact_valence_floor= float(c.get("danger_contact_valence_floor", DANGER_CONTACT_VALENCE_FLOOR))
         # ──────────────────────────────────────────────────────────────────────
 
@@ -885,8 +891,8 @@ class World:
                 m.valence = max(-1.0, m.valence + penalty)
         if not ate_food:
             reward = self._food_vision_reward(entity)
-            if reward > 0.0:
-                m.valence = min(1.0, m.valence + reward)
+            if reward > 0.0 and m.valence < self._food_vision_cap:
+                m.valence = min(self._food_vision_cap, m.valence + reward)
 
     # ── Food respawn ──────────────────────────────────────────────────────────
 

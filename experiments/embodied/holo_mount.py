@@ -62,7 +62,8 @@ class HoloMount:
                  k_proto: int = 64, n_phasor: int = 512, budget: int = 120,
                  context: int = 5, horizon: int = 3, top_m: int = 5,
                  sigma_target: float = 1.2, ema_tau: float = 12.0,
-                 min_dwell: int = 2, seed: int = 0) -> None:
+                 min_dwell: int = 2, demo_weight: float = 2.5,
+                 seed: int = 0) -> None:
         self.ready = False
         self._calib_target = max(1, calib_steps // calib_stride)
         self._calib_stride = calib_stride
@@ -90,6 +91,8 @@ class HoloMount:
         self._ema_alpha = 1.0 / max(ema_tau, 1.0)
         self._ema: np.ndarray | None = None
         self._min_dwell = min_dwell
+        self._demo_weight = demo_weight
+        self._last_taught = False
 
         self.memory: HoloEpisodicMemory | None = None
         self._whiten: Whitener | None = None
@@ -104,8 +107,13 @@ class HoloMount:
 
     # ── per-step entry point ───────────────────────────────────────────────
 
-    def step(self, h: np.ndarray, tag: float) -> float:
-        """Feed one hidden state + reward; returns current dv̂ (0 until live)."""
+    def step(self, h: np.ndarray, tag: float, taught: bool = False) -> float:
+        """Feed one hidden state + reward; returns current dv̂ (0 until live).
+
+        `taught` marks steps executed under teacher forcing: a toggle closes
+        the slide (demonstrations are their own episodes) and taught records
+        get demo_weight priority at recall.
+        """
         self._step_count += 1
         s = self._sketch(h).astype(np.float32)
         if self._ema is None:
@@ -119,8 +127,12 @@ class HoloMount:
                     self._fit()
             return 0.0
 
+        if taught != self._last_taught:
+            self.boundary()          # demo start/end = event boundary
+            self._last_taught = taught
+
         feat = self._whiten.transform(self._ema)
-        sym = self.memory.observe(feat, tag=float(tag))
+        sym = self.memory.observe(feat, tag=float(tag), taught=taught)
         if sym is None:
             return self.last_dv
 
@@ -151,14 +163,15 @@ class HoloMount:
         feats = self._whiten.transform(samples)
         probe = PhasorEncoder(self._pca_d, self._n_phasor, scale=1.0,
                               seed=self._seed)
-        cb = VQCodebook.fit(feats, self._k_proto, probe, seed=self._seed)
+        k = max(2, min(self._k_proto, len(feats) // 2))
+        cb = VQCodebook.fit(feats, k, probe, seed=self._seed)
         qd = np.array([cb.quantize(f)[1] for f in feats])
         scale = self._sigma_target / max(np.median(qd), 1e-9)
         encoder = PhasorEncoder(self._pca_d, self._n_phasor, scale=scale,
                                 seed=self._seed)
         self.memory = HoloEpisodicMemory(
             encoder, VQCodebook(cb.prototypes, encoder), budget=self._budget,
-            min_dwell=self._min_dwell)
+            min_dwell=self._min_dwell, demo_weight=self._demo_weight)
         self.ready = True
         print(f"[holo] reel is live: K={self._k_proto} prototypes, "
               f"scale s={scale:.3f}, budget {self._budget}/slide")
@@ -226,8 +239,11 @@ class HoloMount:
             return f"holo: calibrating {pct:.0f}%"
         r, n, r_ev, n_ev = self.foresight()
         prec = self._prec_hits / max(self.n_recalls, 1)
+        n_demo = sum(sum(s.taught) for s in self.memory.slides)
+        demo = f"  demo={n_demo}" if n_demo else ""
         return (f"holo: {self.memory.n_records} rec / "
-                f"{len(self.memory.slides)} slides  dv̂={self.last_dv:+.3f}  "
+                f"{len(self.memory.slides)} slides{demo}  "
+                f"dv̂={self.last_dv:+.3f}  "
                 f"prec={prec:.0%}  foresight r={r:+.2f} (n={n})  "
                 f"event r={r_ev:+.2f} (n={n_ev})")
 
@@ -248,6 +264,9 @@ class HoloMount:
             tags=np.array([np.pad(np.array(s.tags, dtype=np.float64),
                                   (0, self._budget - s.count))
                            for s in mem.slides]),
+            taught=np.array([np.pad(np.array(s.taught, dtype=np.int8),
+                                    (0, self._budget - s.count))
+                             for s in mem.slides]),
         )
 
     def load(self, path: str) -> None:
@@ -261,15 +280,18 @@ class HoloMount:
                                 scale=float(data["scale"]), seed=self._seed)
         self.memory = HoloEpisodicMemory(
             encoder, VQCodebook(data["protos"], encoder), budget=self._budget,
-            min_dwell=self._min_dwell)
+            min_dwell=self._min_dwell, demo_weight=self._demo_weight)
         self.memory.slides = []
         from holo_memory import Slide
-        for film, count, tags in zip(data["films"], data["counts"],
-                                     data["tags"]):
+        taught_arr = (data["taught"] if "taught" in data
+                      else np.zeros_like(data["tags"], dtype=np.int8))
+        for film, count, tags, taught in zip(data["films"], data["counts"],
+                                             data["tags"], taught_arr):
             s = Slide(self._n_phasor)
             s.film = film
             s.count = int(count)
             s.tags = list(tags[: int(count)])
+            s.taught = [int(v) for v in taught[: int(count)]]
             s.closed = True
             self.memory.slides.append(s)
         self.memory.boundary()      # resume recording on a fresh slide

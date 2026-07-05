@@ -1,0 +1,17 @@
+{
+  "_comment": "Teleop + episodic reel session (holographic #7 follow-up): teach approach->eat by demonstration; the reel records teacher-forced slides with demo_weight recall priority, and dv shapes the RPE after the teacher lets go. Wait for '[holo] reel is live' (~1 min) before teaching.",
+  "name": "Wim-Teleop",
+  "brain_path": "brains/Wim-Teleop-64.npz",
+  "log_path": "brains/logs/wim-teleop-64.csv",
+  "world_config": "rulesets/default.json",
+  "grid_size": 64,
+  "readout_vel": true,
+  "explore_noise": 0.3,
+  "teacher_force_lr": 0.002,
+  "holo_enabled": true,
+  "holo_beta": 0.4,
+  "holo_source": "obs",
+  "holo_calib_steps": 3600,
+  "holo_demo_weight": 3.0,
+  "device": "cuda"
+}

@@ -160,6 +160,7 @@ DEFAULT_CONFIG: dict = {
     "holo_budget":      120,    # records per slide (#4-A load threshold)
     "holo_context":     5,      # trajectory-stub length for recall cues
     "holo_horizon":     3,      # transitions ahead for Δvalence recall/foresight
+    "holo_demo_weight": 2.5,    # recall-score multiplier for teacher-forced records
     # Arch
     "seed":            42,
     "action_feedback": False,
@@ -313,6 +314,7 @@ class EmbodiedBrain:
                 budget      = int(cfg.get("holo_budget", 120)),
                 context     = int(cfg.get("holo_context", 5)),
                 horizon     = int(cfg.get("holo_horizon", 3)),
+                demo_weight = float(cfg.get("holo_demo_weight", 2.5)),
                 seed        = seed,
             )
             print(f"[holo] reel mounted (beta={self._holo_beta}, "
@@ -380,7 +382,7 @@ class EmbodiedBrain:
                        else np.zeros(OBS_DIM, dtype=np.float32))
             else:
                 src = self._last_h.detach().cpu().numpy()
-            dv = self._holo.step(src, reward)
+            dv = self._holo.step(src, reward, taught=self._teacher_forced)
             reward = reward + self._holo_beta * dv
         if not self.learning_enabled:
             return
@@ -565,7 +567,7 @@ def _log_step(brain: EmbodiedBrain, step: int, reward_sum: float, log_every: int
     """Print step summary + K metrics and write one CSV row."""
     row = _log(step, reward_sum, log_every, brain._valence_pred,
                brain.w_out_norm, eat_count, episodes, fwd_sum, turn_sum)
-    if brain._holo is not None:
+    if getattr(brain, "_holo", None) is not None:
         print(f"  {brain._holo.stats()}")
     _log_knowledge(brain, step, csv_row=row)
     row.update(_compute_extra_k(brain))
@@ -807,10 +809,12 @@ def _build_brain(cfg: dict, carrier: bool) -> "EmbodiedBrain":
             "teacher_force_lr": cfg.get("teacher_force_lr", 0.0),
             "holo_enabled":     cfg.get("holo_enabled", False),
             "holo_beta":        cfg.get("holo_beta", 0.0),
+            "holo_source":      cfg.get("holo_source", "state"),
             "holo_calib_steps": cfg.get("holo_calib_steps", 6000),
             "holo_budget":      cfg.get("holo_budget", 120),
             "holo_context":     cfg.get("holo_context", 5),
             "holo_horizon":     cfg.get("holo_horizon", 3),
+            "holo_demo_weight": cfg.get("holo_demo_weight", 2.5),
         },
         device          = cfg["device"],
         action_feedback = cfg["action_feedback"],
