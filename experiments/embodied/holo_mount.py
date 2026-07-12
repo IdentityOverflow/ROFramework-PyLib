@@ -104,6 +104,7 @@ class HoloMount:
         self.last_score = 0.0
         self.n_recalls = 0
         self._prec_hits = 0     # top match lands on the cue's own symbol
+        self._demo_hits = 0     # top match is a taught (teacher-forced) record
 
     # ── per-step entry point ───────────────────────────────────────────────
 
@@ -212,7 +213,9 @@ class HoloMount:
         self.last_dv = float((w @ dv) / w.sum())
         self.last_score = float(w.max())
         self.n_recalls += 1
-        self._prec_hits += int(matches[0]["matched_symbol"] == mem.last_sym)
+        top = matches[0]
+        self._prec_hits += int(top["matched_symbol"] == mem.last_sym)
+        self._demo_hits += int(bool(mem.slides[top["slide"]].taught[top["position"]]))
         self._pending.append({"dv": self.last_dv, "tag0": tag, "acc": []})
 
     # ── reporting ──────────────────────────────────────────────────────────
@@ -240,7 +243,8 @@ class HoloMount:
         r, n, r_ev, n_ev = self.foresight()
         prec = self._prec_hits / max(self.n_recalls, 1)
         n_demo = sum(sum(s.taught) for s in self.memory.slides)
-        demo = f"  demo={n_demo}" if n_demo else ""
+        demo = (f"  demo={n_demo} (hit={self._demo_hits / max(self.n_recalls, 1):.0%})"
+                if n_demo else "")
         return (f"holo: {self.memory.n_records} rec / "
                 f"{len(self.memory.slides)} slides{demo}  "
                 f"dv̂={self.last_dv:+.3f}  "

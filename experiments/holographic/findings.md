@@ -539,3 +539,91 @@ lets go — episodic memory as a demonstration amplifier. Planned mechanics:
 tag slides recorded under `teacher_forced` and weight demonstration episodes
 above self-play in recall. Separately: consider capping or saturating
 `food_vision_reward` to close the food-staring exploit.
+
+---
+
+## #8 — Scripted teacher: the reel recalls values, not actions
+
+**File:** [`07_scripted_teacher.py`](07_scripted_teacher.py); demo-hit
+counter added to [`../embodied/holo_mount.py`](../embodied/holo_mount.py)
+
+### Post-mortem of the human teleop session first
+
+A ~1-hour live teleop session (2026-07-05, `Wim-Teleop-64`, run right after
+the demo-weighting commit) showed no visible behavioral change. The saved
+reel explains why: the machinery worked perfectly — 1,820 taught records
+across 19 slides with mean tag **+0.82**, against 15,651 self-play records
+at **−0.04**; the demonstrations are the highest-valence content in the
+reel — but teaching covered <1% of a ~200k-step session on a fresh brain,
+and the session log shows mean valence *declining* by quarter (+0.33 →
+−0.09) while the demos sat unrecalled. The dose was homeopathic.
+
+### Protocol
+
+The #5 Braitenberg policy replaces the human as teacher, at a controlled
+dose: fresh WimBrain per run (matched brain seed 42), alternating 1.5k-step
+teach/free blocks over steps 4k–18k (~25% coverage), then a 12k-step
+retention window. Teacher actions enter through the exact live-teleop path
+(`set_executed_action(a, teacher_forced=True)`). Worlds 7/21/33, three
+arms: **baseline** (no teaching, reel observing), **teach** (β=0 — pure
+supervised nudge, reel observing), **teach+dv** (β=0.4, demo_weight=3 —
+the full demonstration-amplifier stack). New metrics: **imitation** =
+Pearson r between teacher turn command and the brain's deterministic
+proposal on the same obs, free-play steps only; **demo-hit** = fraction of
+recalls whose top match is a taught record. ~200 steps/s on GPU; nothing
+saved.
+
+### Results (retention-late deltas vs baseline, same world)
+
+| world | arm | Δimit (turn r) | Δval | Δdeaths | demo-hit (ret) |
+|---|---|---|---|---|---|
+| 7  | teach    | **+0.08** | +0.031 | −1 | 100% |
+| 7  | teach+dv | −0.00 | −0.016 | −1 | 100% |
+| 21 | teach    | **+0.18** | +0.001 | −1 | 100% |
+| 21 | teach+dv | +0.12 | −0.000 | −1 | 100% |
+| 33 | teach    | **+0.07** | +0.151 | −2 | 100% |
+| 33 | teach+dv | +0.04 | +0.169 | −2 | 100% |
+
+- **The supervised nudge leaves a real but weak trace.** Δimit positive in
+  3/3 seeds for the teach arm (mean +0.11), eat-agreement up in 3/3
+  (+17/+11/+46 pts), and **0 deaths in all 6 taught runs** vs 4 across the
+  3 baselines. Direction right, magnitude a whisper — absolute imitation r
+  stays ≈0.05; nobody watching the game would see it (consistent with the
+  human session's "no visible change").
+- **Recall is saturated by demonstrations, and it does not matter.** After
+  teaching ends, demo-hit is 100% — at demo_weight=3 with taught records
+  ~15% of the reel, essentially *every* recall's top match is a taught
+  record. The amplifier mechanism is maximally engaged. Yet teach+dv is
+  *weaker* than teach alone on imitation in 3/3 seeds. dv̂ flowing through
+  the RPE adds nothing the nudge didn't already do.
+
+### The finding
+
+**The reel is a value memory, not an action memory — so demonstration
+recall has no path to the motor readout.** Slides store side *tags* =
+valence; the teacher's actions are not in the reel at all. "What did the
+teacher do here" is unanswerable by construction; the only recallable
+content is "how did valence move when the teacher was here," and that
+enters as reward shaping → RPE → eligibility trace, which credits *the
+agent's own executed actions*. dv̂ can sculpt the value landscape but
+cannot inject a policy; for it to amplify demonstrations, exploration
+would have to spontaneously re-enact demo-like trajectories so the boost
+lands on the right actions — which a fresh noisy brain almost never does.
+This is #7's lesson one level up: β amplifies episodic structure it cannot
+create, and value-only recall amplifies *values* it cannot turn into
+*actions*.
+
+### Next
+
+- **Action side-tags:** record the executed action alongside valence
+  (actions ride the film exactly as tags do), so recall returns
+  (situation → what-was-done, what-happened) instead of value alone.
+- **Recollection as suggestion:** on high-score taught recall, blend the
+  recalled action into the motor proposal (episodic control proper, NEC
+  Pritzel et al. 2017-style) — giving demonstrations a direct,
+  supervised-strength path to behavior that persists after the teacher
+  lets go.
+- Confidence gating (open since #6) becomes load-bearing here: recalled
+  actions should only speak when retrieval score is high.
+- Still open: consolidation (decode, dedup, re-record — sleep for the
+  reel).
