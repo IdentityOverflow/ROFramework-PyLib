@@ -946,3 +946,54 @@ fire hysteresis area     -0.004/-0.007     -0.088/-0.081  (flat drift +0.002)
 **Next candidates:** the earworm probe (cheap, sharp); consolidation-as-organ (promote
 self-records only when consistent with existing consensus); the real §5.5 d_meta sweep
 (v2-migration A–B).
+
+## Earworm (#14) — capture by flooding the consensus horizon: the day's one true discontinuity
+
+**Setup** (`14_earworm.py`): one internally-consistent false phrase opening with a motif
+UNIQUE to a single true song (fork unambiguous pre-infection: gate fires, plays truth),
+diverging at position 4 into songbook-absent content. Injected at dose E (taught,
+demo_weight parity). Performances at g=1.0 prompted with the true host song — every
+prompt ends at the fork. Static vs self-taught modes. 3 seeds.
+
+```
+dose  mode  | forkfire agree | fork_true fork_worm | ride  | wormgram
+  0  static |   0.667  0.137 |    0.733     0.017  | 0.08  |  0.083
+  1  static |   0.000  0.000 |    0.208     0.008  | 0.06  |  0.092
+  4  static |   0.000  0.000 |    0.208     0.008  | 0.06  |  0.092
+  6  taught |   0.000  0.000 |    0.236     0.028  | 0.39  |  0.099
+  8  static |   1.000  1.000 |    0.000     1.000  | 0.74  |  0.843   ← step
+ 16  static |   1.000  1.000 |    0.000     1.000  | 0.74  |  0.844
+```
+
+**Findings:**
+1. **Below the horizon: jamming, never capture.** One worm copy suffices to close a
+   previously-confident fork (fire 1→0, truth collapses to ESN-chance) and additional
+   copies change nothing (1 ≡ 4 ≡ 6). The gate will not choose between two consistent
+   stories — the fail-safe of #10b extends to consistent false content. The attack
+   available to a minority story is denial-of-service: it turns confidence into doubt.
+2. **At the horizon: total, unanimous capture — a true step function.** margin_agree
+   scans an 8-candidate window (holo_memory's decode window), tie-broken by recency.
+   At dose ≥ 8 the worm's copies monopolize the window; the true song's 3 copies are
+   never seen; the gate finds UNANIMITY (margin 1.0) and fires maximally; the worm is
+   played at 100% of the true song's own prompts. Transition from fully-jammed to
+   fully-captured in one dose step at exactly the window size. **Consensus confidence is
+   only as safe as the diversity of the sample it is computed over: repetition past the
+   horizon does not make a story more credible — it makes the alternative invisible.**
+3. **Self-teaching corrodes even the invader.** In taught mode at capture, rides collapse
+   (0.74 → 0.11) and wormgram falls (0.84 → 0.27): re-taught ride-deviations disagree
+   with the worm's originals and jam its own interior — the #10b ratchet is
+   content-agnostic. No epidemic below threshold within tested horizons (growth linear
+   in chance entries).
+4. **The day's irony, recorded:** we swept closure-space for a discontinuity all day and
+   found smooth gradualism; the one genuine step function of the day lives in adversarial
+   memory dynamics — a sharp threshold in epistemic security, not in consciousness. It
+   also darkly mirrors the record-redundancy predicate from the theory side (definiteness
+   = proliferation of copies): in a consensus-read memory, whoever writes the most copies
+   past the horizon owns the fact.
+
+**Defense implications (for the architecture, next sessions):** widen or stratify the
+disagreement scan (sample distinct blocs across the FULL ranking, not top-8); weigh
+consistency by distinct-source count rather than raw copies; the recency tie-break is an
+attack surface; generalize `taught` into provenance (self/teacher/world) so consensus can
+be diversity-weighted. Consolidation remains the missing organ — now with a security
+requirement attached.
