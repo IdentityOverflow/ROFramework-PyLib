@@ -82,22 +82,10 @@ def query_gated(mem: HoloEpisodicMemory, cue: list[np.ndarray],
     (another continuation symbol, or conflicting tags). Candidate for
     promotion into holo_memory.query() if it survives this experiment.
     """
-    res = mem.query(cue, horizon=horizon, top_m=top_m)
+    res = mem.query(cue, horizon=horizon, top_m=1)
     if not res or not res[0]["next_symbols"]:
         return None, 0.0
-    top = res[0]
-    top_tag = float(np.mean(top["next_tags"])) if top["next_tags"] else 0.0
-    margin_agree = 1.0
-    for cand in res[1:]:
-        if not cand["next_symbols"]:
-            continue
-        tag = float(np.mean(cand["next_tags"])) if cand["next_tags"] else 0.0
-        disagrees = (cand["next_symbols"][0] != top["next_symbols"][0]
-                     or abs(tag - top_tag) > 0.5)
-        if disagrees:
-            margin_agree = (top["score"] - cand["score"]) / max(top["score"], 1e-9)
-            break
-    return top, float(margin_agree)
+    return res[0], float(res[0]["margin_agree"])   # promoted into holo_memory
 
 
 class ESN:

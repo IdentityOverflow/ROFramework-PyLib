@@ -312,6 +312,17 @@ class HoloEpisodicMemory:
         if not scored:
             return []
         scored.sort(reverse=True)
+        # decode a candidate window beyond top_m so margin_agree (below) can
+        # look for the nearest DISAGREEING competitor, not just the nearest one
+        n_cand = min(len(scored), max(top_m, 8))
+        cands = []
+        for score, si, k in scored[:n_cand]:
+            slide = self.slides[si]
+            cleaned = self._decode_slide(slide)
+            h = min(horizon, slide.count - 1 - k)
+            cands.append((score, si, k,
+                          cleaned[k + 1: k + 1 + h].tolist(),
+                          slide.tags[k + 1: k + 1 + h]))
         out = []
         for i, (score, si, k) in enumerate(scored[:top_m]):
             slide = self.slides[si]
@@ -331,12 +342,28 @@ class HoloEpisodicMemory:
                 if si2 != si:
                     margin_slide = float((score - s2) / max(score, 1e-9))
                     break
+            # margin_agree: lead over the nearest candidate that predicts
+            # something DIFFERENT (continuation symbol or conflicting tags).
+            # Re-experiencing writes duplicate slides that tie on score while
+            # agreeing on content — corroboration, not ambiguity (#9c). This
+            # is the confidence signal for value/policy import.
+            my_next = cands[i][3] if i < len(cands) else []
+            my_tag = float(np.mean(cands[i][4])) if i < len(cands) and cands[i][4] else 0.0
+            margin_agree = 1.0 if my_next else 0.0
+            for s2, si2, k2, nxt2, tags2 in cands[i + 1:]:
+                if not my_next or not nxt2:
+                    continue
+                tag2 = float(np.mean(tags2)) if tags2 else 0.0
+                if nxt2[0] != my_next[0] or abs(tag2 - my_tag) > 0.5:
+                    margin_agree = float((score - s2) / max(score, 1e-9))
+                    break
             out.append({
                 "slide": si,
                 "position": k,
                 "score": float(score),
                 "margin": margin,
                 "margin_slide": margin_slide,
+                "margin_agree": margin_agree,
                 "matched_symbol": int(cleaned[k]),
                 "matched_tag": slide.tags[k],
                 "next_symbols": cleaned[k + 1: k + 1 + h].tolist(),
