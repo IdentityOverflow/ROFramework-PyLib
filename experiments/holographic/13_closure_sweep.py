@@ -116,7 +116,7 @@ def g_schedule(protocol: str, steps: int) -> list[float]:
 
 
 def run(protocol: str, tau: float, seed: int, steps: int,
-        per_step: int) -> list[dict]:
+        per_step: int, self_taught: bool = False) -> list[dict]:
     rng = np.random.default_rng(seed)
     model = MelodyModel(tau=tau)
     book = Songbook(N_SONGS, 8, model, rng)          # no affect: cargo is content
@@ -162,6 +162,7 @@ def run(protocol: str, tau: float, seed: int, steps: int,
             esn.reset()
             played: list[int] = []
             for pos in range(PHRASE_LEN):
+                was_ovr = False
                 if pos < PROMPT:
                     sym = int(phrase[pos])
                 else:
@@ -179,11 +180,17 @@ def run(protocol: str, tau: float, seed: int, steps: int,
                             if cand != played[-1] and rng.random() < g:
                                 sym = cand
                                 ovr += 1
+                                was_ovr = True
                     fid += int(sym == int(phrase[pos]))
                     n += 1
+                # self-taught variant: the performer's own gate-cleared
+                # overrides are recorded as demonstrations — replays gain
+                # recall priority, restoring the compounding channel the
+                # teacher clamp suppressed (and opening the delusion one)
                 mem.observe(one_hot(sym), tag=float(
                     -(model.surprisal(np.array(played[-1:] + [sym]))[-1]
-                      - book.mu) / book.sd) if played else 0.0)
+                      - book.mu) / book.sd) if played else 0.0,
+                    taught=self_taught and pos >= PROMPT and was_ovr)
                 esn.step(one_hot(sym))
                 played.append(sym)
             mem.boundary()
@@ -207,19 +214,22 @@ def main() -> None:
     ap.add_argument("--seeds", type=int, default=3)
     ap.add_argument("--steps", type=int, default=11)
     ap.add_argument("--per-step", type=int, default=12)
+    ap.add_argument("--self-taught", action="store_true")
     args = ap.parse_args()
 
     print(f"#10 closure sweep — tau={args.tau} seeds={args.seeds} "
-          f"steps={args.steps} per_step={args.per_step} theta={THETA}")
+          f"steps={args.steps} per_step={args.per_step} theta={THETA} "
+          f"self_taught={args.self_taught}")
     for protocol in args.protocols:
-        curves = [run(protocol, args.tau, s, args.steps, args.per_step)
+        curves = [run(protocol, args.tau, s, args.steps, args.per_step,
+                      self_taught=args.self_taught)
                   for s in range(args.seeds)]
         half = args.steps
         print(f"\n[{protocol}]  (mean over {args.seeds} seeds)")
         print(f"{'g':>5} | {'fid_1':>7} {'fid_2':>7} | {'gram_1':>7} "
               f"{'gram_2':>7} | {'lock_1':>7} {'lock_2':>7} | "
               f"{'fire_1':>8} {'fire_2':>8}")
-        fields = ("g", "fid", "fire", "agree", "gram", "lock")
+        fields = ("g", "fid", "fire", "agree", "gram", "lock", "ovr")
         first = {f: np.mean([[c[i][f] for c in curves]
                              for i in range(half)], axis=1) for f in fields}
         second = {f: np.mean([[c[half + i][f] for c in curves]

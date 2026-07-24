@@ -902,3 +902,47 @@ suggestion machinery proven in #9c), so the null is meaningful, not a dead-loop 
 (b) **The real §5.5 test** waits on v2-migration phases A–B (core-lib d_meta + gain g in
     observe()): sweep the SELF-MODEL consumption gain, not the memory gain. Tonight's
     design transfers wholesale; only the cargo changes.
+
+## #10b — Self-taught variant: the ratchet, not the lock. Consensus confidence fails safe
+
+**Setup** (`13_closure_sweep.py --self-taught`): identical to #10 except gate-cleared
+overrides are recorded taught=True — the performer's confident replays gain the same 3×
+recall priority as the teacher's demonstrations. Same protocols, seeds, grid.
+
+```
+                          plain #10        self-taught
+fire at g=1 (fresh)         0.648             0.488
+fire at g=1 (updown peak)   0.650             0.269   ← falls WITH g
+gram peak                   0.618             0.323
+fire hysteresis area     -0.004/-0.007     -0.088/-0.081  (flat drift +0.002)
+```
+
+**Findings:**
+1. **Path dependence found — and it is a ratchet, not a memory.** Fire-rate areas are
+   −0.088/−0.081 in BOTH sweep directions, 40× the flat-drift baseline. Same sign under
+   updown and downup means it is not retention-at-matched-g (bistability); it is monotone,
+   cumulative, irreversible degradation: fire falls with total overrides-so-far, never
+   recovers when g returns (downup second visit to g=1: 0.275 vs 0.488), and flat0 shows
+   zero decay without the self-teaching channel. The loop consumed its own confidence.
+2. **Mechanism:** overridden notes include medley-hops and post-deviation continuations —
+   locally song-like, globally inconsistent. Taught, they outrank the songbook and then
+   DISAGREE WITH EACH OTHER at query time; margin_agree collapses; the gate stops firing;
+   the junk stays. Each confident act, re-recorded as authoritative, eroded the authority
+   structure that made confidence possible.
+3. **No delusion-lock — the consensus gate fails SAFE.** The feared signature (fire stays
+   high while content degrades) did not occur: fire fell WITH gram. Consensus-based
+   confidence cannot be captured by diverse self-generated error, because diverse error
+   disagrees with itself — the gate detects the contradictions it caused and shuts down.
+   Silence, not delusion. Corollary and open probe: capture should require SELF-CONSISTENT
+   false content (correlated error). The earworm experiment: inject one repeated false
+   phrase as taught and test whether it captures the gate. Untested.
+4. **The pair of runs, one statement:** for this untwisted memory loop, the teacher-clamped
+   regime is stable but cannot compound (#10), and the self-authorized regime compounds
+   only destructively (#10b). No self-reinforcing constructive regime exists in this
+   architecture — self-authorization without external anchoring is a poison ratchet, and
+   consolidation (selective, consistency-checked promotion of self-records) is the missing
+   organ, now indicated by two independent failure modes.
+
+**Next candidates:** the earworm probe (cheap, sharp); consolidation-as-organ (promote
+self-records only when consistent with existing consensus); the real §5.5 d_meta sweep
+(v2-migration A–B).
