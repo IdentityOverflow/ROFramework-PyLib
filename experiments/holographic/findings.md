@@ -796,3 +796,53 @@ else markov). τ=1.0, P ∈ {16,64,256}, A ∈ {0,0.5,1,2}, 3 seeds.
    test in 9c.
 
 **Currency decision going forward: r_gated is the foresight metric for 9c and #10.**
+
+## #9c — The mounted listener: recollection-as-suggestion works, and confidence means consensus
+
+**Setup** (`12_mounted_listener.py`): numpy ESN (256 leaky units, online softmax readout)
+predicting next symbols; reel mounted alongside, recording the same stream (valence =
+surprisal + affect spikes A=1). Exposure schedule: 8 COMMON songs × 12 performances vs
+8 RARE songs × 2. Test: every song re-performed, learning frozen. Suggestion = recalled
+continuation OVERRIDES the readout when the identity gate fires; dv arm = gated dv̂
+modulating learning rate (β=0.5), agent-side only. τ ∈ {0.8, 2.0}, 3 seeds.
+
+```
+ tau  train | common: base  sugg | rare: base  sugg | fire%   hit   r_dv
+ 0.8  plain |        0.561 0.822 |      0.283 0.639 | 55.8% 0.988  0.996
+ 0.8     dv |        0.589 0.822 |      0.283 0.642 | 55.8% 0.988  0.996
+ 2.0  plain |        0.589 0.850 |      0.242 0.753 | 65.4% 0.998  0.998
+ 2.0     dv |        0.603 0.861 |      0.233 0.753 | 65.4% 0.998  0.998
+```
+
+**Findings:**
+1. **The discovery came from the smoke test: agreement is not ambiguity.** With repeated
+   exposures the reel holds duplicate slides of the same song, so margin_slide reads exact
+   ties everywhere and the gate NEVER fires (0.0%). Duplicates compete on uniqueness while
+   agreeing on content. The correct confidence signal for value/policy import is
+   **margin_agree**: lead over the nearest candidate that predicts something *different*
+   (continuation symbol or conflicting tags). Re-experiencing strengthens memory; a
+   uniqueness-based gate reads that strength as confusion, a consensus-based gate reads it
+   as corroboration. Implemented as `query_gated()` in the experiment; promote to
+   `holo_memory.query()` next session.
+2. **Recollection-as-suggestion — queued since #8 — works.** With the consensus gate:
+   fires on 56-65% of test positions at 0.99+ precision, lifting rare-song accuracy
+   +0.36 to +0.51 (0.242 → 0.753 at τ=2.0) — 2-exposure material the parametric learner
+   cannot own. The #8 diagnosis is fully repaired: when the film carries continuations
+   (policy-relevant content) and imports them through an identity gate, recall steers.
+3. **Honest deviation from prediction 1: common songs also gained (+0.26).** The ESN
+   readout is a weaker parametric learner than assumed (0.56-0.60 on 12-exposure songs),
+   so the override helps everywhere, not just on rare material. The dissociation exists
+   (rare gains more at τ=2.0: +0.51 vs +0.26) but is partly masked by parametric
+   weakness. Stronger readout or longer training would sharpen it; not rerun tonight.
+4. **The value channel, closed fairly.** dv-modulated plasticity changes almost nothing
+   (≤ +0.03 anywhere) — completing the #7→#8→tonight arc: value tags can't inject policy
+   (#8), value import without identity gating is net-negative (Affect), and even gated
+   value consumed as learning-rate modulation barely moves behavior when the policy
+   channel already exists. The loop's cargo should be content; value is seasoning.
+5. Gated foresight in the mounted setting: r_dv = 0.996-0.998 — with consensus gating and
+   a small reel, recalled Δvalence is essentially a perfect forecaster. The #6 scorecard
+   metric ("foresight r") finally has a configuration that saturates it honestly.
+
+**Next:** promote margin_agree into holo_memory.query(); #10 closure sweep / hysteresis
+(the ro_framework v2 §5.5 falsification experiment) — the melodic stream now has
+everything it needed: dense valence, working suggestion channel, trustworthy gate.
