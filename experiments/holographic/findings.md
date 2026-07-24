@@ -846,3 +846,59 @@ modulating learning rate (β=0.5), agent-side only. τ ∈ {0.8, 2.0}, 3 seeds.
 **Next:** promote margin_agree into holo_memory.query(); #10 closure sweep / hysteresis
 (the ro_framework v2 §5.5 falsification experiment) — the melodic stream now has
 everything it needed: dense valence, working suggestion channel, trustworthy gate.
+
+## #10 — The closure sweep: no hysteresis. Gradualism wins on the loop we swept
+
+**Setup** (`13_closure_sweep.py`): performer loop — frozen-readout ESN samples notes;
+gate-cleared recalls override with probability g; played notes are re-recorded (recall →
+override → action → memory of own action). Songbook seeded as demonstrations
+(demo_weight=3, taught=True — see finding 3). Protocols: g swept 0→1→0 (updown), 1→0→1
+(downup, time-confound control), flat0 (drift baseline). τ=2.0, 3 seeds, 11 steps × 12
+phrases. Order parameters: in-language 4-gram rate (gram), gate fire rate; plus strict
+prompted-song fidelity and full-phrase lock.
+
+**Result — unambiguous within this design:** all curves smooth and monotone in g
+(gram 0.162 → 0.618, fire 0.43 → 0.65, no jumps); hysteresis areas −0.021..+0.008,
+the same order as flat-drift noise (±0.003); both sweep directions agree; lock appears
+only near g=1 (0.111) exactly as the compounding probability (fire·g)^12 predicts —
+tail of a smooth function, not a threshold. **No discontinuity. No path dependence.
+As pre-registered, this reads gradualist.** The loop was demonstrably alive (fire 0.65,
+suggestion machinery proven in #9c), so the null is meaningful, not a dead-loop artifact.
+
+**What exactly was falsified — the attribution, stated carefully:**
+1. The swept gain routes EPISODIC-MEMORY CONTENT (world/action cargo) back into behavior.
+   Nothing in this loop represents its own representing — by ro_framework v2's own
+   taxonomy (§5.4) it is a closed but UNTWISTED loop, a class for which v2 makes no
+   threshold claim. The §5.5 clause specifically concerns consumption of d_meta
+   (self-model outputs). Read strictly: tonight retires the bridge-doc-era
+   operationalization (holo_beta-as-closure-gain) — it was always a memory-consumption
+   gain, not a self-model-consumption gain — and establishes empirically that memory
+   loops scale gradually. The binary clause survives untested at its actual referent;
+   testing it requires the v2-migration A–B machinery (a real d_meta with routable
+   consumption), which the core-lib audit already scheduled.
+2. HOWEVER: the honest bracket on even this narrower null — the demo_weight=3 crutch
+   that prevented self-poisoning also CLAMPS path-dependence: with the songbook boosted
+   3×, self-generated replays barely tilt recall consensus, so the medium's memory of
+   its own trajectory (the substrate hysteresis needs) was partially suppressed. The two
+   failure modes bracket the interesting regime: demo_weight=1 → self-poisoning kills
+   ignition; demo_weight=3 → teacher prior kills path-dependence.
+
+**Banked side-findings (both from smoke tests):**
+3. **Self-poisoning:** an agent that indiscriminately records its own low-competence
+   behavior buries the consensus its memory-guidance depends on — with demo_weight=1 the
+   loop can NEVER ignite on ascent. Consolidation ("sleep for the reel", parked since #6)
+   is hereby promoted from wishlist to structural necessity.
+4. **The medley attractor:** when the loop does engage, it closes onto the songbook's
+   LANGUAGE, not onto faithful episodes — replay hops songs at shared motifs (gram 0.62
+   while prompted-fidelity stays 0.24). Closure targets the corpus-attractor, not the
+   episode.
+
+**Next (the fork):**
+(a) **Self-taught variant:** record the performer's own gate-cleared overrides as
+    taught=True — replays then gain recall priority and the compounding mechanism
+    (consensus → firing → consensus) is restored WITHOUT the teacher clamp. This is
+    confidence-begets-confidence by construction — delusion dynamics — which is exactly
+    why it is the right next probe for path dependence.
+(b) **The real §5.5 test** waits on v2-migration phases A–B (core-lib d_meta + gain g in
+    observe()): sweep the SELF-MODEL consumption gain, not the memory gain. Tonight's
+    design transfers wholesale; only the cargo changes.
