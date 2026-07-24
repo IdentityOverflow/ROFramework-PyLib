@@ -31,6 +31,7 @@ from ro_framework.core.state import State
 
 # Observer exports
 from ro_framework.observer.observer import Observer, ObservationPair, ObservationLog, ClosureAssessment
+from ro_framework.observer.self_encoding import BehavioralEncoder, TwistAssessment
 from ro_framework.observer.mapping import MappingFunction, NeuralMapping
 
 # Knowledge exports
@@ -62,6 +63,8 @@ __all__ = [
     # Observer
     "Observer",
     "ClosureAssessment",
+    "BehavioralEncoder",
+    "TwistAssessment",
     "ObservationPair",
     "ObservationLog",
     "MappingFunction",

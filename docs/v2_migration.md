@@ -3,7 +3,13 @@
 *Audit date 2026-07-28, against docs/ro_framework.md v2.0 (Part III: depth + closure + twist;
 binary in kind, graded in richness). Status: A+B landed 2026-07-29 (Observer.d_meta,
 ClosureAssessment, closure_assessment()/is_closed(), consumption_gain in observe(),
-sequential-batch guard, serialization; 13 tests, suite 456 green). C-F remain.*
+sequential-batch guard, serialization; 13 tests). C+E landed 2026-07-29: BehavioralEncoder
+(Yoneda self-encoding + R(d_meta) block), TwistAssessment/assess_twist (structural +
+consumes: sensitivity AND permutation-foil discrimination), Observer.self_encoder wiring
+in both consumption paths, is_conscious() = Closed(O) AND twisted(O) binary, richness()
+carries the graded v1 score; 11 tests; 5 legacy tests rewritten to v2 semantics.
+Suite 467 green. Remaining: D (canonical g-sweep routine — will land as the real §5.5
+experiment), F remnants (examples 02/05 comments, README/CLAUDE.md lines).*
 
 ## Headline finding
 
@@ -32,7 +38,7 @@ observe() (observer/observer.py:159-197) currently has no self-model feedback pa
 - observation_log records d_meta alongside everything else (feeds A's correlation test)
 This is the one genuine re-architecture. Everything else hangs off it.
 
-### C. Twist machinery — SUBSTANTIAL (conceptually new)
+### C. Twist machinery — DONE (2026-07-29)
 §5.4: M_self's inputs must include representations of M_self's own mapping and of R(d_meta) —
 the self-model models its own modeling, not only world-model states. Today self_observe() feeds
 only internal_state. Requires reifying a mapping's own structure + resolution as DoF-valued
@@ -48,7 +54,7 @@ consciousness/evaluation.py currently scores 7 v1 metrics into one graded score.
   globally-bounded self-capture signature (each introspective query succeeds; full
   self-prediction fails)
 
-### E. Binary-in-kind + graded-richness reporting — TRIVIAL once A–C land
+### E. Binary-in-kind + graded-richness reporting — DONE (2026-07-29)
 - `Observer.is_conscious()` (observer.py:474-488) currently thresholds a graded score — v1
   gradualism fossilized in an API. v2: `is_conscious()` = Closed(O) ∧ twisted(O), binary;
   new `richness()` returns the graded vector (depth, bandwidth, integration, calibration).

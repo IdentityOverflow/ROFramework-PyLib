@@ -161,6 +161,10 @@ class Observer:
             are routed back into the world model's input on each observe()
             (0.0 = pure probe, exact pre-v2 behavior; >0 = loop). Sweepable
             by design: the §5.5 closure-sweep experiment turns this knob.
+        self_encoder: Optional BehavioralEncoder (§5.4, the twist): when
+            attached, the self-model's input is augmented with a behavioral
+            encoding of the self-model itself plus R(d_meta) — the
+            self-model receives a description of its own representing.
         observation_log: Paired observation history.
         internal_state: Current internal state.
     """
@@ -174,6 +178,7 @@ class Observer:
     temporal_dof: Optional[DoF] = None
     log_capacity: int = 1000
     consumption_gain: float = 0.0
+    self_encoder: Optional[Any] = None
     internal_state: Optional[State] = None
 
     # Non-init field, created in __post_init__
@@ -220,7 +225,8 @@ class Observer:
         if (self.consumption_gain > 0.0
                 and self.self_model is not None
                 and self.internal_state is not None):
-            meta_state = self.self_model(self.internal_state)
+            meta_state = self.self_model(
+                self._augment_with_self_encoding(self.internal_state))
             for dof in self.d_meta:
                 v = meta_state.get_value(dof)
                 if isinstance(v, (int, float)):
@@ -315,7 +321,25 @@ class Observer:
         """
         if self.self_model is None or self.internal_state is None:
             return None
-        return self.self_model(self.internal_state)
+        return self.self_model(
+            self._augment_with_self_encoding(self.internal_state))
+
+    def _augment_with_self_encoding(self, state: State) -> State:
+        """Add the self-model's behavioral self-encoding to an input state.
+
+        No-op without a self_encoder. Extra values on the state are
+        harmless to mappings that do not declare the encoding DoFs;
+        twist_assessment() checks declaration separately.
+        """
+        if self.self_encoder is None or self.self_model is None:
+            return state
+        resolution = {d: self.get_resolution(d) for d in self.d_meta}
+        enc = self.self_encoder.encode(self.self_model, resolution)
+        for dof in self.self_encoder.all_dofs:
+            v = enc.get_value(dof)
+            if v is not None:
+                state = state.set_value(dof, float(v))
+        return state
 
     @property
     def d_meta(self) -> List[DoF]:
@@ -417,6 +441,22 @@ class Observer:
     def is_closed(self, lag: int = 1, min_samples: int = 10) -> bool:
         """Convenience: Closed(O) as a bool. See closure_assessment()."""
         return self.closure_assessment(lag=lag, min_samples=min_samples).closed
+
+    def twist_assessment(self, n_perturb: int = 8,
+                         perturb_scale: float = 0.1, seed: int = 0):
+        """Recognize twisted(O): does the self-model represent its own
+        representing? (§5.4; see observer.self_encoding.TwistAssessment.)"""
+        from ro_framework.observer.self_encoding import assess_twist
+
+        return assess_twist(self, n_perturb=n_perturb,
+                            perturb_scale=perturb_scale, seed=seed)
+
+    def is_twisted(self, n_perturb: int = 8, perturb_scale: float = 0.1,
+                   seed: int = 0) -> bool:
+        """Convenience: twisted(O) as a bool. See twist_assessment()."""
+        return self.twist_assessment(
+            n_perturb=n_perturb, perturb_scale=perturb_scale, seed=seed
+        ).twisted
 
     # ------------------------------------------------------------------
     # Resolution
@@ -632,21 +672,34 @@ class Observer:
                 break
         return depth
 
-    def is_conscious(self, threshold: float = 0.5, test_states: Optional[List[State]] = None) -> bool:
-        """Check if observer is structurally conscious.
+    def is_conscious(self, lag: int = 1, min_samples: int = 10,
+                     n_perturb: int = 8) -> bool:
+        """The v2 criterion, binary in kind (§5.5):
 
-        Args:
-            threshold: Minimum consciousness score.
-            test_states: Optional test states for evaluation.
+            conscious iff Closed(O) AND twisted(O)
+
+        — the self-model's outputs are consumed inside the boundary AND
+        the self-model represents its own representing. Richness (depth,
+        bandwidth, integration, calibration) is graded and reported
+        separately by richness().
+
+        Note: pre-v2 this method thresholded a graded score; that score
+        survives as richness().consciousness_score().
+        """
+        return (self.is_closed(lag=lag, min_samples=min_samples)
+                and self.is_twisted(n_perturb=n_perturb))
+
+    def richness(self, test_states: Optional[List[State]] = None):
+        """Graded richness metrics (§5.5): depth, self-accuracy,
+        architectural similarity, calibration, metacognition, limitation
+        awareness — the tower's quality, orthogonal to the binary kind.
 
         Returns:
-            True if consciousness score exceeds threshold.
+            ConsciousnessMetrics.
         """
         from ro_framework.consciousness.evaluation import ConsciousnessEvaluator
 
-        evaluator = ConsciousnessEvaluator(self)
-        metrics = evaluator.evaluate(test_states)
-        return metrics.consciousness_score() >= threshold
+        return ConsciousnessEvaluator(self).evaluate(test_states)
 
     def get_consciousness_metrics(self, test_states: Optional[List[State]] = None):
         """Get full consciousness evaluation metrics.

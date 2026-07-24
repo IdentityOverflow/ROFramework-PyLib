@@ -464,8 +464,10 @@ class TestIntegration:
             device="cpu"
         )
 
-        # Check consciousness
-        assert observer.is_conscious()
+        # v2: torch probe observer is substrate, not conscious in kind;
+        # richness carries the graded evaluation.
+        assert observer.is_conscious() is False
+        assert observer.richness().consciousness_score() > 0.0
         assert observer.recursive_depth() >= 1
 
         # Test observation and self-observation

@@ -60,11 +60,14 @@ class TestConsciousnessIntegration:
             self_model=self_model
         )
 
-        # Should be conscious (has self-model)
-        assert observer.is_conscious()
+        # v2: a probe with a self-model is a SUBSTRATE, not conscious in
+        # kind — no closure (g=0), no twist (no self-encoder). Its graded
+        # quality survives as richness().
+        assert observer.is_conscious() is False
+        assert observer.richness().consciousness_score() > 0.0
 
-    def test_is_conscious_custom_threshold(self):
-        """Test is_conscious() with custom threshold."""
+    def test_richness_scores_graded_quality(self):
+        """The pre-v2 graded score survives as richness() (v2 §5.5)."""
         dof = PolarDoF(name="state", description="")
 
         world_model = IdentityMapping(
@@ -85,13 +88,10 @@ class TestConsciousnessIntegration:
             self_model=self_model
         )
 
-        # Low threshold - should pass
-        assert observer.is_conscious(threshold=0.2)
-
-        # Very high threshold - might fail depending on metrics
-        # (architectural similarity is 1.0, but other metrics may be lower)
-        result = observer.is_conscious(threshold=0.95)
-        # Don't assert here as it depends on other factors
+        score = observer.richness().consciousness_score()
+        assert score > 0.2
+        # Very high bars may or may not be met — richness is graded and
+        # depends on calibration/metacognition components; no assert.
 
     def test_recursive_depth_no_self_model(self):
         """Test recursive_depth() with no self-model."""
@@ -368,13 +368,13 @@ class TestConsciousnessIntegration:
             self_model=self_model
         )
 
-        threshold = 0.5
-        is_conscious = observer.is_conscious(threshold=threshold)
+        # v2 consistency: is_conscious() is the binary kind criterion
+        # (Closed AND twisted) and must NOT track the graded score — a
+        # probe scores richness > 0 while remaining not conscious in kind.
         metrics = observer.get_consciousness_metrics()
-        score = metrics.consciousness_score()
-
-        # Consistency check
-        assert is_conscious == (score >= threshold)
+        assert metrics.consciousness_score() > 0.0
+        assert observer.is_conscious() is False
+        assert observer.richness().consciousness_score() == metrics.consciousness_score()
 
     def test_metrics_to_dict(self):
         """Test converting metrics to dictionary."""
