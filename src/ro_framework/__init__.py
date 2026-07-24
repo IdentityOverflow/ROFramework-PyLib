@@ -12,7 +12,7 @@ Core concepts:
 - States: Configurations across multiple DoFs
 - Observers: O = (B, M, R, Mem) — Boundary, Mapping, Resolution, Memory
 - Knowledge: K(d_ext) = (ρ, ε, σ, C) — graded, observer-relative
-- Consciousness: Recursive self-modeling with bounded error
+- Consciousness: Closed, twisted recursive self-modeling — binary in kind, graded in richness
 """
 
 from ro_framework.version import __version__
@@ -30,7 +30,7 @@ from ro_framework.core.value import Value
 from ro_framework.core.state import State
 
 # Observer exports
-from ro_framework.observer.observer import Observer, ObservationPair, ObservationLog
+from ro_framework.observer.observer import Observer, ObservationPair, ObservationLog, ClosureAssessment
 from ro_framework.observer.mapping import MappingFunction, NeuralMapping
 
 # Knowledge exports
@@ -61,6 +61,7 @@ __all__ = [
     "State",
     # Observer
     "Observer",
+    "ClosureAssessment",
     "ObservationPair",
     "ObservationLog",
     "MappingFunction",

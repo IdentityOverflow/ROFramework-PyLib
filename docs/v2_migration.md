@@ -1,7 +1,9 @@
 # v2 migration worklist — bringing the implementation up to ro_framework.md v2
 
 *Audit date 2026-07-28, against docs/ro_framework.md v2.0 (Part III: depth + closure + twist;
-binary in kind, graded in richness). Status: nothing implemented yet; this is the map.*
+binary in kind, graded in richness). Status: A+B landed 2026-07-29 (Observer.d_meta,
+ClosureAssessment, closure_assessment()/is_closed(), consumption_gain in observe(),
+sequential-batch guard, serialization; 13 tests, suite 456 green). C-F remain.*
 
 ## Headline finding
 
@@ -14,7 +16,7 @@ scaling Hebbian learning — not self-model consumption; do not mistake it for c
 
 ## Work items, in build order
 
-### A. Reify d_meta + Closed(O) predicate — MODERATE
+### A. Reify d_meta + Closed(O) predicate — DONE (2026-07-29)
 The self-model's output DoFs must exist as first-class DoFs (d_meta) so anything can be said
 about them. Then Closed(O) per §5.3:
   (i) d_meta ⊆ domain(M) — structural check
@@ -22,7 +24,7 @@ about them. Then Closed(O) per §5.3:
 Ingredients already exist: correlation/measures.py, ObservationLog, the internal/external DoF
 partition on Observer. Mostly plumbing + a predicate.
 
-### B. The consumption loop: gain g in observe() — SUBSTANTIAL (the heart)
+### B. The consumption loop: gain g in observe() — DONE (2026-07-29)
 observe() (observer/observer.py:159-197) currently has no self-model feedback path. Needed:
 - self-model output injected into world_model's domain with tunable gain g
 - g = 0 → pure probe (exact v1 behavior, default for backward compat)

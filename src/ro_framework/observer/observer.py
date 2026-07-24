@@ -114,6 +114,34 @@ class ObservationLog:
         return log
 
 
+@dataclass(frozen=True)
+class ClosureAssessment:
+    """Closed(O) recognition result (ro_framework.md §5.3).
+
+    Closure asks where the self-model's outputs GO: a probe's
+    self-representations are exported (reports, logs, external readers);
+    a loop's are consumed by the observer's own subsequent processing.
+
+    Criteria:
+        structural: a consumption path exists — consumption_gain > 0 with a
+            self-model whose output DoFs (d_meta) are declared.
+        corr_internal: max |lagged correlation| between d_meta values at t
+            and internal DoF values at t+lag.
+        corr_external: same against external DoF values at t+lag
+            (the "external consumer" side of §5.3's comparison).
+        closed: structural AND corr_internal > corr_external AND enough
+            samples. A recognition criterion, like B, M, R, Mem — computed
+            from static correlation structure in the observation log, not
+            from any runtime activity.
+    """
+
+    structural: bool
+    corr_internal: float
+    corr_external: float
+    n_samples: int
+    closed: bool
+
+
 @dataclass
 class Observer:
     """Observer: O = (B, M, R, Mem).
@@ -129,6 +157,10 @@ class Observer:
         self_model: Optional mapping from internal to internal (consciousness).
         resolution: Per-DoF resolution limits.
         temporal_dof: Optional temporal DoF for memory analysis.
+        consumption_gain: g — strength with which the self-model's outputs
+            are routed back into the world model's input on each observe()
+            (0.0 = pure probe, exact pre-v2 behavior; >0 = loop). Sweepable
+            by design: the §5.5 closure-sweep experiment turns this knob.
         observation_log: Paired observation history.
         internal_state: Current internal state.
     """
@@ -141,6 +173,7 @@ class Observer:
     resolution: Dict[DoF, float] = field(default_factory=dict)
     temporal_dof: Optional[DoF] = None
     log_capacity: int = 1000
+    consumption_gain: float = 0.0
     internal_state: Optional[State] = None
 
     # Non-init field, created in __post_init__
@@ -177,7 +210,25 @@ class Observer:
                 f"External state missing declared DoFs: {[d.name for d in missing_ext]}"
             )
 
-        internal_state = self.world_model(external_state)
+        # Consumption loop (§5.3, closure): route the self-model's reading of
+        # the PREVIOUS internal state back into the world model's input,
+        # scaled by g. At g=0 this block is inert and observe() is exactly
+        # the pre-v2 probe. Correlation across the temporal DoF (last cycle's
+        # d_meta -> this cycle's processing) is what closure_assessment()
+        # later recognizes.
+        input_state = external_state
+        if (self.consumption_gain > 0.0
+                and self.self_model is not None
+                and self.internal_state is not None):
+            meta_state = self.self_model(self.internal_state)
+            for dof in self.d_meta:
+                v = meta_state.get_value(dof)
+                if isinstance(v, (int, float)):
+                    input_state = input_state.set_value(
+                        dof, self.consumption_gain * float(v)
+                    )
+
+        internal_state = self.world_model(input_state)
 
         missing_int = [d for d in self.internal_dofs if internal_state.get_value(d) is None]
         if missing_int:
@@ -211,6 +262,12 @@ class Observer:
         """
         if not external_states:
             return []
+
+        # Consumption is inherently sequential (each cycle consumes the
+        # previous cycle's self-model output) — a vectorized batch would
+        # silently open the loop. Fall back to sequential when g > 0.
+        if self.consumption_gain > 0.0 and self.self_model is not None:
+            return [self.observe(s) for s in external_states]
 
         if not hasattr(self.world_model, "batch_call"):
             return [self.observe(s) for s in external_states]
@@ -246,9 +303,12 @@ class Observer:
     def self_observe(self) -> Optional[State]:
         """Recursive self-modeling: map internal DoFs to internal DoFs.
 
-        This is the structural definition of consciousness —
-        internal->internal correlation with the same architectural type
-        as external->internal correlation.
+        This is the SUBSTRATE condition of consciousness (§5.1) —
+        internal->internal correlation with the same architectural type as
+        external->internal correlation. It is necessary, not sufficient:
+        the v2 criterion additionally requires closure (the self-model's
+        outputs consumed inside the boundary — see closure_assessment())
+        and the twist (the self-model representing its own representing).
 
         Returns:
             Self-representation state, or None if no self-model.
@@ -256,6 +316,107 @@ class Observer:
         if self.self_model is None or self.internal_state is None:
             return None
         return self.self_model(self.internal_state)
+
+    @property
+    def d_meta(self) -> List[DoF]:
+        """The self-model's output DoFs — the carriers of self-representation.
+
+        Closure (§5.3) is a question about where values on these DoFs go:
+        consumed by the observer's own processing (loop) or exported
+        (probe). Empty if there is no self-model or it declares no
+        output_dofs.
+        """
+        if self.self_model is None:
+            return []
+        return list(getattr(self.self_model, "output_dofs", None) or [])
+
+    def closure_assessment(
+        self, lag: int = 1, min_samples: int = 10
+    ) -> ClosureAssessment:
+        """Recognize Closed(O): are the self-model's outputs consumed inside B?
+
+        Per §5.3, closure holds when (i) a consumption path exists
+        (d_meta reaches the world model's domain — realized here by
+        consumption_gain > 0) and (ii) d_meta values at time t correlate
+        more strongly with the observer's own internal configurations at
+        t+lag than with external configurations at t+lag.
+
+        The d_meta series is recomputed by applying the self-model to the
+        logged internal states, so the assessment is a pure recognition
+        over static correlation structure — it works retroactively on any
+        observation history and needs no runtime bookkeeping. (Limitation:
+        for a stochastic self-model the recomputed series is a resample,
+        not a replay.)
+
+        Args:
+            lag: Temporal offset for the consumption correlation (>= 1).
+            min_samples: Minimum aligned samples required.
+
+        Returns:
+            ClosureAssessment.
+        """
+        structural = (
+            self.consumption_gain > 0.0
+            and self.self_model is not None
+            and len(self.d_meta) > 0
+        )
+
+        pairs = list(self.observation_log)
+        if self.self_model is None or len(pairs) < min_samples + lag:
+            return ClosureAssessment(
+                structural=structural, corr_internal=0.0,
+                corr_external=0.0, n_samples=len(pairs), closed=False,
+            )
+
+        meta_states = [self.self_model(p.internal_state) for p in pairs]
+
+        def _series(states, dof):
+            vals = []
+            for s in states:
+                v = s.get_value(dof) if s is not None else None
+                vals.append(float(v) if isinstance(v, (int, float)) else None)
+            return vals
+
+        def _lagged_corr(m_vals, t_vals):
+            a, b = [], []
+            for i in range(len(m_vals) - lag):
+                mv, tv = m_vals[i], t_vals[i + lag]
+                if mv is not None and tv is not None:
+                    a.append(mv)
+                    b.append(tv)
+            if len(a) < min_samples:
+                return None
+            a, b = np.asarray(a), np.asarray(b)
+            if a.std() < 1e-12 or b.std() < 1e-12:
+                return None
+            return float(abs(np.corrcoef(a, b)[0, 1]))
+
+        internal_states = [p.internal_state for p in pairs]
+        external_states = [p.external_state for p in pairs]
+
+        corr_int, corr_ext, n_used = 0.0, 0.0, 0
+        for m_dof in self.d_meta:
+            m_vals = _series(meta_states, m_dof)
+            for t_dof in self.internal_dofs:
+                c = _lagged_corr(m_vals, _series(internal_states, t_dof))
+                if c is not None:
+                    corr_int = max(corr_int, c)
+                    n_used = max(n_used, len(pairs) - lag)
+            for t_dof in self.external_dofs:
+                c = _lagged_corr(m_vals, _series(external_states, t_dof))
+                if c is not None:
+                    corr_ext = max(corr_ext, c)
+
+        closed = bool(structural and n_used >= min_samples
+                      and corr_int > corr_ext)
+        return ClosureAssessment(
+            structural=structural, corr_internal=corr_int,
+            corr_external=corr_ext, n_samples=n_used, closed=closed,
+        )
+
+    def is_closed(self, lag: int = 1, min_samples: int = 10) -> bool:
+        """Convenience: Closed(O) as a bool. See closure_assessment()."""
+        return self.closure_assessment(lag=lag, min_samples=min_samples).closed
 
     # ------------------------------------------------------------------
     # Resolution
@@ -515,6 +676,7 @@ class Observer:
             "resolution": {d.name: v for d, v in self.resolution.items()},
             "temporal_dof": self.temporal_dof.to_dict() if self.temporal_dof else None,
             "log_capacity": self.log_capacity,
+            "consumption_gain": self.consumption_gain,
             "observation_log": self.observation_log.to_dict(),
         }
 
@@ -554,6 +716,7 @@ class Observer:
             resolution=resolution,
             temporal_dof=temporal_dof,
             log_capacity=d.get("log_capacity", 1000),
+            consumption_gain=d.get("consumption_gain", 0.0),
         )
 
         # Restore observation log
