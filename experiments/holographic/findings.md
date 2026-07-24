@@ -627,3 +627,54 @@ create, and value-only recall amplifies *values* it cannot turn into
   actions should only speak when retrieval score is high.
 - Still open: consolidation (decode, dedup, re-record — sleep for the
   reel).
+
+## #9a — The reel reads sheet music: episodic advantage is real, and the foresight currency was saturated
+
+**Setup** (`08_music_reel.py`, `melody.py`; plan in `09_music_plan.md`): songbook of P phrases
+(16 notes, 8 motif incipits, cadence rule) from a first-order Markov listener model at
+temperature τ; one phrase per slide, one-hot codebook (VQ bypassed — exact quantization,
+clean cues); record pass then re-performance test pass, top-1 query on 3-note stubs.
+3 seeds × τ ∈ {0.4, 1.0, 2.5} × P ∈ {16, 64, 256}. Full sweep: 170 s, CPU.
+
+```
+ tau    P |   id%   pos% | next_reel next_gram | r_reel r_markov |    adv
+ 0.4   16 | 64.6%  61.9% |     0.753     0.444 |  0.925    0.940 | -0.015
+ 0.4   64 | 30.6%  29.2% |     0.535     0.463 |  0.836    0.941 | -0.106
+ 0.4  256 | 12.7%  12.6% |     0.446     0.467 |  0.836    0.938 | -0.102
+ 1.0   16 | 81.6%  80.0% |     0.864     0.319 |  0.931    0.942 | -0.011
+ 1.0   64 | 50.9%  50.6% |     0.646     0.327 |  0.819    0.939 | -0.121
+ 1.0  256 | 27.3%  27.1% |     0.466     0.329 |  0.761    0.940 | -0.179
+ 2.5   16 | 84.1%  83.8% |     0.888     0.228 |  0.960    0.963 | -0.003
+ 2.5   64 | 65.9%  65.8% |     0.752     0.261 |  0.862    0.964 | -0.102
+ 2.5  256 | 40.9%  40.8% |     0.543     0.257 |  0.708    0.964 | -0.256
+```
+
+**Findings:**
+1. **The thesis confirmed on the prediction axis.** Episodic advantage in next-note accuracy
+   widens with entropy exactly as designed: at P=16, reel−grammar = +0.31 (τ=0.4) → +0.55
+   (τ=1.0) → +0.66 (τ=2.5). Atonal-but-memorized is where episodic memory earns its keep;
+   grammar-predictable streams leave it little to add. First clean measurement of the
+   parametric↔episodic tradeoff in this stack.
+2. **Temperature decorrelates the songbook.** Identity accuracy RISES with τ at fixed P
+   (64.6→84.1% at P=16; 12.7→40.9% at P=256): low-τ phrases are all the same scale-runs,
+   so 3-note stubs are ambiguous across phrases; high-τ phrases are distinctive. Interference
+   with reel size is the dominant cost (id% roughly halves per 4× P). id≈pos everywhere:
+   when the right phrase is found, alignment is essentially always right — identity, not
+   position, is the bottleneck.
+3. **Methods discovery — the foresight currency was parametrically saturated.** r_markov ≈
+   0.94–0.96 across the board: surprisal-derived valence is almost fully predictable from
+   the grammar (cadence/position structure dominates Δvalence), so dv̂ cannot beat the
+   parametric oracle by construction — recall errors can only subtract (adv ≤ 0 everywhere,
+   −0.26 worst at 2.5/256, while r_reel stays 0.71–0.96 absolutely). This retroactively
+   sharpens #6's lesson: "the reel is only as prophetic as the life it records" needs an
+   addendum — **and only as valuable as the part of the life that memory alone can know.**
+   Surprisal-valence is knowable-by-grammar; episodic memory can only show its worth on
+   value the grammar cannot see.
+4. **One honest negative:** at τ=0.4 with P ≥ 64, wrong-phrase recalls actively mislead
+   next-note prediction (reel 0.446 < grammar 0.467 at P=256). No confidence gating was
+   used; the score-margin gate (#6) is the obvious fix and is now measurably motivated.
+
+**Next:** (a) 9b transposition (ABS vs REL encoding) on this same harness; (b) redesign
+valence for 9c/#10: give each phrase an idiosyncratic affect offset the grammar cannot
+predict (memory-only-knowable value) — then dv̂ foresight becomes a fair fight instead of
+a saturated one; (c) wire in score-margin confidence gating before 9c.
