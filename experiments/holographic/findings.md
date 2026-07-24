@@ -752,3 +752,47 @@ confidence ≥ θ else grammar argmax; one query pass, θ-curves post-hoc; both 
 
 **Next:** phrase-affect valence (memory-only-knowable value), then 9c with dual read
 policies: ungated continuation, strictly-gated value/suggestion import.
+
+## Affect — episodic value pays only through the gate
+
+**Setup** (`11_phrase_affect.py`; `affect_amp` spikes in `melody.Songbook`): each phrase
+gets ONE valence spike at a phrase-specific position (random sign, amplitude A) — value
+the grammar cannot see. Design note that mattered: a phrase-CONSTANT affect offset cancels
+out of Δvalence entirely; episodic value must be an *event*. Forecasters: markov oracle
+(spike-blind), ungated reel dv̂, and the dual-read hybrid (reel iff margin_slide ≥ 0.01,
+else markov). τ=1.0, P ∈ {16,64,256}, A ∈ {0,0.5,1,2}, 3 seeds.
+
+```
+   P    A |  r_reel r_markov r_gated |    adv   adv_g |   id%  cov%
+  16  0.0 |   0.931    0.942   0.972 | -0.011  +0.030 | 81.6% 68.3%
+  16  2.0 |   0.918    0.934   0.971 | -0.016  +0.037 | 81.7% 68.3%
+  64  0.0 |   0.819    0.939   0.958 | -0.121  +0.018 | 50.9% 31.2%
+  64  2.0 |   0.746    0.925   0.950 | -0.180  +0.025 | 50.5% 30.6%
+ 256  0.0 |   0.761    0.940   0.947 | -0.179  +0.006 | 27.3% 11.8%
+ 256  2.0 |   0.582    0.927   0.935 | -0.345  +0.008 | 25.5%  9.7%
+```
+
+**Findings:**
+1. **The ungated crossover never comes — at any identity level.** Both pre-registered
+   ungated predictions failed, and the mechanism is exact: on CORRECT recalls the reel's
+   tags already include the spike, so dv̂ was already a perfect forecaster — affect adds
+   zero headroom. On WRONG recalls the reel imports the wrong phrase's spike (wrong moment,
+   possibly wrong sign) — error that scales with A. Ungated episodic foresight therefore
+   has no affect upside, only downside: adv worsens monotonically with A in every P
+   (P=256: −0.179 → −0.345).
+2. **The gated hybrid wins every cell and profits from affect.** adv_g > 0 in all 12 cells,
+   growing with A where coverage is decent (P=16: +0.030 → +0.037; P=64: +0.018 → +0.025).
+   At P=16 the hybrid reaches r = 0.972, beating the saturated parametric ceiling even at
+   A=0 — gate-kept recalls carry exact tags, better than the Monte-Carlo oracle everywhere
+   they fire.
+3. **The design law for 9c and #10, in one line: episodic value must be imported through
+   an identity gate or not at all.** This is #8's lesson completed: what the loop carries
+   matters (#8), and carrying it back to the WRONG moment is worse than carrying nothing —
+   closure pays in proportion to addressing reliability. For the v2 framework's closure
+   story this adds a measurable rider: Closed(O) with unreliable d_meta addressing is a
+   net-negative loop; the gate is what makes consumption safe.
+4. Bottleneck at scale: P=256 coverage ~10% caps adv_g at +0.008. Coverage, not precision,
+   is now the limiting resource — longer cue windows (4-5 notes) are the obvious knob;
+   test in 9c.
+
+**Currency decision going forward: r_gated is the foresight metric for 9c and #10.**

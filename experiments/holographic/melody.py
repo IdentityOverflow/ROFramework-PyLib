@@ -110,10 +110,20 @@ def make_phrase(motif: np.ndarray, model: MelodyModel,
 
 
 class Songbook:
-    """P phrases over a motif library, with frozen valence normalization."""
+    """P phrases over a motif library, with frozen valence normalization.
+
+    affect_amp > 0 adds one phrase-specific valence spike per phrase — a
+    memory-only-knowable value event ("the moment in this song") at a random
+    position in [affect_lo, affect_hi], random sign, amplitude affect_amp.
+    A phrase-CONSTANT affect offset would cancel out of Δvalence (within-
+    phrase difference), so episodic value must be an event, not a bias.
+    The listener grammar knows nothing of the spikes; markov_dv() therefore
+    remains the honest parametric ceiling.
+    """
 
     def __init__(self, n_phrases: int, n_motifs: int, model: MelodyModel,
-                 rng: np.random.Generator) -> None:
+                 rng: np.random.Generator, affect_amp: float = 0.0,
+                 affect_lo: int = 6, affect_hi: int = 12) -> None:
         self.model = model
         self.motifs = make_motifs(n_motifs, rng)
         self.motif_of = rng.integers(0, n_motifs, size=n_phrases)
@@ -122,6 +132,15 @@ class Songbook:
         s_all = np.concatenate([model.surprisal(ph) for ph in self.phrases])
         self.mu, self.sd = float(s_all.mean()), float(s_all.std() + 1e-9)
         self.valence = [self._z(model.surprisal(ph)) for ph in self.phrases]
+        self.affect_pos = np.full(n_phrases, -1)
+        self.affect_sign = np.zeros(n_phrases)
+        if affect_amp > 0:
+            for pid in range(n_phrases):
+                pos = int(rng.integers(affect_lo, affect_hi + 1))
+                sign = float(rng.choice([-1.0, 1.0]))
+                self.valence[pid][pos] += sign * affect_amp
+                self.affect_pos[pid] = pos
+                self.affect_sign[pid] = sign
 
     def _z(self, surprisal: np.ndarray) -> np.ndarray:
         return -(surprisal - self.mu) / self.sd
