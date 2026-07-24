@@ -678,3 +678,46 @@ clean cues); record pass then re-performance test pass, top-1 query on 3-note st
 valence for 9c/#10: give each phrase an idiosyncratic affect offset the grammar cannot
 predict (memory-only-knowable value) — then dv̂ foresight becomes a fair fight instead of
 a saturated one; (c) wire in score-margin confidence gating before 9c.
+
+## #9b — Transposition: values vs differences. The derived-DoF claim, measured
+
+**Setup** (`09_transposition.py`): same songbook machinery as #9a, melodies confined to
+degrees 0..9, transposition = +4 degrees. Two reels record the same phrases: ABS (one-hot
+scale degree, cue = last 4 notes) vs REL (one-hot successive interval, cue = the 3
+intervals of the same 4-note window). Test in-key and transposed. 3 seeds; foresight
+deliberately unscored (#9a: currency saturated). Full sweep 28 s.
+
+```
+ tau    P |  in-key id%   | transposed id% | transposed next
+          |   ABS    REL  |   ABS     REL  |   ABS     REL
+ 1.0   16 |  91.3   78.6  |   6.1    78.6  |  0.064   0.797   (chance 6.2%)
+ 1.0   64 |  75.5   46.7  |   0.8    46.7  |  0.109   0.550   (chance 1.6%)
+ 2.5   16 |  93.4   87.2  |   5.2    87.2  |  0.073   0.882   (chance 6.2%)
+ 2.5   64 |  83.9   64.6  |   1.4    64.6  |  0.093   0.678   (chance 1.6%)
+```
+
+**Findings:**
+1. **Transfer is exact, collapse is total.** REL's transposed columns equal its in-key
+   columns to the decimal — interval streams are bit-identical under transposition, so
+   invariance is exact by construction, and the experiment proves the encoding actually
+   delivers it through the full record/recall pipeline. ABS drops to statistical chance
+   in every cell (6.1% vs 6.2% chance, 0.8% vs 1.6%, ...). Musical identity lives on the
+   derived DoF; the reel confirms the framework's oldest structural claim.
+2. **The invariance tax is real, grows with load, shrinks with entropy.** In-key, ABS
+   beats REL everywhere: +13 pts (τ1.0/P16) to +29 pts (τ1.0/P64). Mechanism: interval
+   streams are self-similar — scale runs (+1,+1,...) recur across phrases, an ambiguity
+   absolute encoding never pays. Higher τ decorrelates intervals and shrinks the tax
+   (P64: 29 → 19 pts). This is the invariance ↔ absolute-information complementarity
+   pair (ro_framework §7.2), now with numbers: at τ1.0/P64 you pay 29 points of in-key
+   identity to keep 45 points over chance under transposition.
+3. **Neither encoding dominates → the structural answer is both.** A dual-reel ensemble
+   (ABS + REL side by side, answer taken from whichever recall clears the higher score
+   margin) would inherit ABS's in-key sharpness and REL's transfer — multiple mappings
+   with different reference frames, complementarity managed by carrying both. Cheap
+   micro-experiment; queued behind 9c.
+4. Methods note: one real bug caught by the smoke test — the REL cue window initially
+   included iv[t], the interval leading into the yet-unheard note (answer leakage +
+   one-position misalignment). Causal windows matter; worth a regression check in 9c.
+
+**Next:** score-margin confidence gating (#9a finding 4), phrase-level affect offsets
+(memory-only-knowable valence) — then 9c, the mounted listener.
