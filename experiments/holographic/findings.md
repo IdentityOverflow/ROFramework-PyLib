@@ -721,3 +721,34 @@ deliberately unscored (#9a: currency saturated). Full sweep 28 s.
 
 **Next:** score-margin confidence gating (#9a finding 4), phrase-level affect offsets
 (memory-only-knowable valence) — then 9c, the mounted listener.
+
+## Gate — confidence gating closes the inversion, and falsifies its own blanket version
+
+**Setup** (`10_confidence_gate.py`; `margin` + `margin_slide` added to
+`HoloEpisodicMemory.query()`, 443 tests green): 9a harness, policy = reel prediction iff
+confidence ≥ θ else grammar argmax; one query pass, θ-curves post-hoc; both margin signals.
+3 seeds × τ ∈ {0.4, 1.0, 2.5} × P ∈ {64, 256}.
+
+**Findings:**
+1. **The #9a inversion cell is closed.** τ0.4/P256: gated 0.484 > reel-only 0.446 and
+   grammar-only 0.467, at θ=0.01 with 4% coverage and 0.99 precision-when-used — when the
+   reel is unambiguous it is essentially always right; everything else goes to the grammar.
+2. **The blanket gate is falsified everywhere else** (pre-registered prediction 2 was
+   wrong): in every healthy cell, any θ > 0 *hurts* (τ2.5/P64: 0.752 → 0.629 at θ=0.01).
+   Mechanism: margins are near-binary — either exact ties or clear wins, almost nothing
+   between — because recurring trigrams (motifs, scale runs) produce IDENTICAL clean
+   phasors across slides. And tied recalls are benign for continuation: the wrong phrase
+   with the same local pattern usually has the same next note. Identity errors ≠
+   prediction errors.
+3. **margin vs margin_slide: no difference** (prediction 1 also failed) — exact ties
+   dominate both signals for the same reason.
+4. **The real lesson, for 9c:** the reel serves two distinct functions with opposite
+   gating needs. As a *pattern-completer* (next-symbol continuation), identity mistakes
+   are harmless and gating should be ~off. As an *episode-indexer* (importing value dv̂ or
+   suggesting whole continuations from a specific past episode), identity is everything
+   and gating should be strict (θ small but nonzero: 0.99 precision at 4% coverage is
+   exactly the profile value-import wants). One memory, two read policies, gated
+   differently — this goes into 9c's design as a requirement, not an option.
+
+**Next:** phrase-affect valence (memory-only-knowable value), then 9c with dual read
+policies: ungated continuation, strictly-gated value/suggestion import.

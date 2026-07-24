@@ -313,14 +313,30 @@ class HoloEpisodicMemory:
             return []
         scored.sort(reverse=True)
         out = []
-        for score, si, k in scored[:top_m]:
+        for i, (score, si, k) in enumerate(scored[:top_m]):
             slide = self.slides[si]
             cleaned = self._decode_slide(slide)
             h = min(horizon, slide.count - 1 - k)
+            # margin: relative lead over the runner-up in the FULL ranking —
+            # the recall-confidence signal (#6); 1.0 when unopposed.
+            # margin_slide: lead over the best candidate from a DIFFERENT
+            # slide — identity confidence (same-slide neighbors are near-ties
+            # by window overlap, so raw margin under-reads confident recalls).
+            if i + 1 < len(scored):
+                margin = float((score - scored[i + 1][0]) / max(score, 1e-9))
+            else:
+                margin = 1.0
+            margin_slide = 1.0
+            for s2, si2, _ in scored[i + 1:]:
+                if si2 != si:
+                    margin_slide = float((score - s2) / max(score, 1e-9))
+                    break
             out.append({
                 "slide": si,
                 "position": k,
                 "score": float(score),
+                "margin": margin,
+                "margin_slide": margin_slide,
                 "matched_symbol": int(cleaned[k]),
                 "matched_tag": slide.tags[k],
                 "next_symbols": cleaned[k + 1: k + 1 + h].tolist(),
