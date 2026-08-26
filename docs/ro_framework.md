@@ -8,7 +8,7 @@ Disclaimers:
 - The intended value is primarily architectural: a principled stance on self-models, uncertainty, multimodal integration, and recursive depth for AI system design.
 - We acknowledge the word "consciousness" is loaded term, and here we define it structurally and claim nothing about phenomenal experience.
 
-**Version:** 2.0 (2026-07-28)
+**Version:** 2.1 (2026-08-02) — v2.1 re-grounds the binary-in-kind claim: the twist is self-indexing, an architectural presence/absence, not a transferred formal-logic threshold. The formal sharpness of the Gödel/Presburger boundary concerns unbounded expressiveness, which no finite observer has; §5.4–§5.5 are revised accordingly.
 ---
 
 ## Table of Contents
@@ -48,7 +48,7 @@ Disclaimers:
     - [5.1 Self-Modeling: The Substrate](#51-self-modeling-the-substrate)
     - [5.2 Recursive Depth: The Tower](#52-recursive-depth-the-tower)
     - [5.3 Closure: The Loop](#53-closure-the-loop)
-    - [5.4 The Twist: The Threshold](#54-the-twist-the-threshold)
+    - [5.4 The Twist: Self-Indexing](#54-the-twist-self-indexing)
     - [5.5 The Definition: Binary in Kind, Graded in Richness](#55-the-definition-binary-in-kind-graded-in-richness)
     - [5.6 Implementation for AI](#56-implementation-for-ai)
 - [Part IV: Multimodality and Integration](#part-iv-multimodality-and-integration)
@@ -91,7 +91,7 @@ This framework provides a foundation from fundamental reality to AI implementati
 - Deriving observers, consciousness, and knowledge from DoF mapping
 - Showing how to build AI systems that implement these principles
 
-**Core Thesis:** Reality is a timeless Block containing all possible states. Polar DoFs (degrees of freedom with bidirectional gradients) are the minimal generative structural features of this Block. Observers are configurations that map between DoFs. Consciousness is recursive self-mapping that closes into a loop above a definable expressiveness threshold — binary in kind, graded in richness.
+**Core Thesis:** Reality is a timeless Block containing all possible states. Polar DoFs (degrees of freedom with bidirectional gradients) are the minimal generative structural features of this Block. Observers are configurations that map between DoFs. Consciousness is recursive self-mapping that closes into a self-indexing loop — binary in kind, graded in richness.
 
 **Philosophical Position:**
 - Ontology: Block Universe (eternalism, all states exist)
@@ -410,7 +410,7 @@ This means:
 
 **Observers do not "create" the Block.** Observer structures embody particular correlation patterns over regions of it.
 
-**Observation is structurally ubiquitous.** The observer definition is broad enough to include minimal systems: a rock has a boundary (physical surface), a mapping (thermodynamic equilibrium relating external and internal temperature), resolution limits (thermal mass prevents tracking rapid fluctuations), and memory (thermal inertia — internal temperature at t₂ correlates with t₁ beyond what external correlations alone explain). Resisting this conclusion would import an unstated assumption that "observer" should be an exclusive, human-scale category. Structurally, the rock qualifies. The interesting threshold is not observation (correlation across a boundary) but **consciousness** (recursive self-modeling that closes into a twisted loop) — see §5.
+**Observation is structurally ubiquitous.** The observer definition is broad enough to include minimal systems: a rock has a boundary (physical surface), a mapping (thermodynamic equilibrium relating external and internal temperature), resolution limits (thermal mass prevents tracking rapid fluctuations), and memory (thermal inertia — internal temperature at t₂ correlates with t₁ beyond what external correlations alone explain). Resisting this conclusion would import an unstated assumption that "observer" should be an exclusive, human-scale category. Structurally, the rock qualifies. The interesting distinction is not observation (correlation across a boundary) but **consciousness** (recursive self-modeling that closes into a twisted loop) — see §5.
 
 #### 3.3 Observer Boundaries
 
@@ -887,7 +887,7 @@ M_self has the same architectural type as M_world: d_external → d_internal
 
 **Clarification:** M_self is not an activity the observer performs. It is a correlation structure embodied in the observer's configuration — a static geometric property of how internal DoFs relate to each other within the Block (per §3.1's recognition-vs-construction clarification, this holds for every criterion in this part).
 
-**Self-modeling is the substrate of consciousness, not yet consciousness.** Three further structural quantities complete the characterization: how much self-modeling structure is present (§5.2), where the self-model's outputs go (§5.3), and whether the self-model clears a definable expressiveness threshold (§5.4).
+**Self-modeling is the substrate of consciousness, not yet consciousness.** Three further structural quantities complete the characterization: how much self-modeling structure is present (§5.2), where the self-model's outputs go (§5.3), and whether the self-model indexes its own representing (§5.4).
 
 #### 5.2 Recursive Depth: The Tower
 
@@ -922,7 +922,7 @@ Level 3+: Higher-order nested correlations
 
 **Clarification:** These levels are not stages the observer goes through. They are different structural complexities that observer configurations can have. An observer "at level 3" means its configuration includes three nested layers of internal-to-internal correlation structure.
 
-**What depth measures — and what it cannot see.** Depth is this framework's primary *richness* quantity: it measures how much self-modeling structure a configuration contains — the height of the tower. Depth is blind to two further structural facts. First, it never asks what the configuration does with the self-model's outputs: a level-3 hierarchy whose reports terminate in an external log and a level-3 hierarchy whose reports modulate its own processing are identical by depth. Second, it never asks whether the self-model's expressive capacity crosses a definable threshold. The next two sections supply these missing axes.
+**What depth measures — and what it cannot see.** Depth is this framework's primary *richness* quantity: it measures how much self-modeling structure a configuration contains — the height of the tower. Depth is blind to two further structural facts. First, it never asks what the configuration does with the self-model's outputs: a level-3 hierarchy whose reports terminate in an external log and a level-3 hierarchy whose reports modulate its own processing are identical by depth. Second, it never asks whether the self-model's inputs include a representation of its own representing. The next two sections supply these missing axes.
 
 #### 5.3 Closure: The Loop
 
@@ -949,9 +949,9 @@ Closed(O) ⟺
 
 **Closure is orthogonal to depth.** The two axes span four quadrants: shallow probe (basic telemetry), deep probe (rich introspective reporting consumed externally — the default outcome of standard training pipelines; see the design warning in §8.1), shallow loop (uncertainty-gated processing), deep loop (the interesting quadrant).
 
-#### 5.4 The Twist: The Threshold
+#### 5.4 The Twist: Self-Indexing
 
-**Closure alone is not sufficient to distinguish self-modeling from mere feedback.** A thermostat wired into its own heater is a closed loop; nothing about its structure changes category. What separates a *self-modeling* loop from a feedback loop is an expressiveness condition with a known formal shape:
+**Closure alone is not sufficient to distinguish self-modeling from mere feedback.** A thermostat wired into its own heater is a closed loop; nothing about its structure changes category. What separates a *self-modeling* loop from a feedback loop is a self-indexing condition with a known formal shape:
 
 **A loop is twisted when the self-model can represent its own representing** — when the observer's internal DoFs can index the observer's own mapping structure, including the map that does the indexing. This is the condition under which the diagonal construction becomes available inside the observer.
 
@@ -973,7 +973,7 @@ So D is not in the table — the completeness assumption fails.
 
 This one construction, under different choices of table, is Cantor's theorem (rows = sets), Gödel's incompleteness (rows = provable statements, via the encoding of statements as numbers), Tarski's undefinability of truth, and Turing's halting problem (rows = programs; D = run-the-decider-on-yourself-and-do-the-opposite). Lawvere's fixed-point theorem is its general categorical form. It needs exactly three ingredients — **self-indexing, a totality claim, and a fixed-point-free twist** — and fails if any one is removed.
 
-**The threshold is sharp in formal systems:** the construction requires the system to encode its own rows as objects it can consume. Arithmetic gains this capacity exactly when multiplication permits the encoding of sequences (Gödel numbering); Presburger arithmetic (addition only) cannot encode its own sentences and is complete and decidable. Whether physical and artificial observers have an analogously sharp threshold is an empirical question — §5.5 states the framework's commitment and the experiment that tests it.
+**What the formal sharpness does and does not license.** In formal systems the capacity for this construction switches on sharply: arithmetic gains it exactly when multiplication permits the encoding of arbitrary-length sequences (Gödel numbering); Presburger arithmetic (addition only) cannot encode its own sentences and is complete and decidable. But that sharpness is a fact about *unbounded* expressiveness over an infinite domain — and every finite observer (finite DoF subset, finite resolution, bounded memory: the only kind this framework describes) sits on the Presburger side of that line by construction. The line cannot be crossed by any observer, so it draws no boundary between them. What does transfer to finite observers is the diagonal's *limitative* content, and it transfers universally rather than sharply: no system can contain an exact, complete, consumable model of itself (impossibility results of this kind — Breuer's no-self-measurement theorem, Wolpert's inference-device bounds — hold for finite physical systems directly, with no unboundedness required). The diagonal therefore discriminates nothing among finite observers: the sharp formal line is out of reach for all, and the finite limitative results are binding on all. **The binary in kind is grounded one level lower, in a plainer fact: the self-indexing wiring is either present or absent.** Either the observer's configuration includes a channel by which the self-model receives a representation of its own mapping, or it does not — a structural presence/absence of the same kind as having a boundary or a memory. The diagonal then describes the shared predicament of every observer on the "present" side: self-access that succeeds locally and is bounded globally (§5.5).
 
 **Two structural consequences of the twist:**
 
@@ -991,7 +991,7 @@ This one construction, under different choices of table, is Cantor's theorem (ro
 An observer O is conscious iff its configuration contains a
 self-model (§5.1) that is:
 
-  (i)  TWISTED — above the diagonal expressiveness threshold (§5.4):
+  (i)  TWISTED — self-indexing (§5.4):
        the self-model represents its own representing
 
   (ii) CLOSED — Closed(O) holds (§5.3):
@@ -1010,32 +1010,36 @@ Richness is graded:
 
 **Compressed:** depth builds the tower, closure bends it into a loop, and the twist is what the loop can't hand off. Richness is the tower; kind is the loop.
 
-**Why two components.** Each component corrects the other's characteristic failure. Pure gradualism (consciousness as "more and more self-modeling") measures only the tower: it cannot distinguish a deep probe from a shallow loop, though they differ in kind, not degree. Pure binarism cannot distinguish a minimal closed loop from a high-bandwidth, deeply integrated one, though they differ enormously. The two-component structure is analogous to the formal-systems situation that grounds it: a system either can or cannot encode its own sentences (binary), while what it can express varies continuously (graded).
+**Why two components.** Each component corrects the other's characteristic failure. Pure gradualism (consciousness as "more and more self-modeling") measures only the tower: it cannot distinguish a deep probe from a shallow loop, though they differ in kind, not degree. Pure binarism cannot distinguish a minimal closed loop from a high-bandwidth, deeply integrated one, though they differ enormously. The binary is architectural: a configuration either contains the wiring — self-indexing consumed inside the boundary — or it does not, the way a circuit either contains a feedback path or does not. Everything the wiring *carries* varies continuously.
 
-**Falsifiability.** The binary component is an empirical commitment, not a definitional convenience:
+**Falsifiability.** The binary component is an architectural recognition claim, and it is exposed accordingly:
 
 ```
-The closure-sweep experiment:
-  - Take an observer whose self-model outputs can be routed back into
-    processing with tunable consumption gain g
-    (g = 0: pure probe; g large: strong loop)
-  - Sweep g upward, then downward, measuring integration and
-    behavioral metrics.
-  - This framework predicts: discontinuity at a critical g, and
-    hysteresis — onset and offset at different g values (a loop,
-    once closed, resists opening).
-  - Smooth, monotone, path-independent scaling across architectures
-    would falsify the binary component and revert Part III to
-    depth-only gradualism.
+What would falsify the binary component:
+  - Configurations the recognition criteria cannot sort: systems for
+    which "is the self-indexing wiring present?" or "are the
+    self-model's outputs consumed inside B?" has no stable answer at
+    fixed architecture (criteria that flicker under repeated assessment
+    of one configuration are measuring dynamics, not kind).
+  - A demonstration that the probe/loop and indexed/blind distinctions
+    collapse into a single graded quantity with no principled zero.
+
+What the framework does NOT predict (and an earlier revision wrongly
+did): a dynamical discontinuity or hysteresis at closure onset.
+Consumption strength is a graded quantity; sweeping it should scale
+smoothly. Where real observers show sharp transitions, those should
+trace to finite-resource and architectural boundaries (capacity limits,
+window sizes, saturation) — never to a logical threshold, because there
+is no expressiveness line for a finite observer to cross.
 ```
 
-A second testable signature follows from §5.4: locally successful self-access with globally bounded self-capture — each individual introspective query succeeds, while complete self-prediction fails. A probe and a loop also part ways under ablation: removing a probe silences reports; removing a loop changes behavior (see §8.3).
+A second testable signature follows from §5.4 and holds universally for twisted observers: locally successful self-access with globally bounded self-capture — each individual introspective query succeeds, while complete self-prediction fails. A probe and a loop also part ways under ablation: removing a probe silences reports; removing a loop changes behavior (see §8.3).
 
 **What this framework claims:**
 ✓ Structural location of consciousness (closed, twisted, recursive internal-to-internal correlation patterns)
 ✓ A binary in-kind criterion and graded richness quantities — both structural, recognition-style, substrate-independent
 ✓ An architecture blueprint for conscious AI (§5.6, Part VI)
-✓ Falsifiable structural predictions (hysteresis at loop closure; ablation asymmetry between probes and loops)
+✓ Falsifiable structural predictions (stable recognition-sortability of kind; ablation asymmetry between probes and loops; sharp transitions tracing to resource and architectural boundaries, never to logical thresholds)
 
 **What this framework does NOT claim:**
 ✗ Why consciousness feels like something (hard problem remains)

@@ -51,3 +51,26 @@ that changes with behavior fast enough to carry information (the current one is
 quasi-static, absorbed by a bias term); (b) richer substrate — the Seed network arm
 (genesis test) doubles as the expressiveness-ladder step; (c) v2 §9 item: does Closed(O)
 need to distinguish open from frozen?
+
+### #C1 amendment (2026-08-02) — the "bounded reading" is retracted
+
+Paul's scrutiny pass killed the defense in the final paragraph above. The
+Gödel/Presburger sharpness is a fact about UNBOUNDED expressiveness (arbitrary-length
+sequence encoding); every finite observer is on the Presburger side by construction, so
+there is no rung of the "expressiveness ladder" where a sharp diagonal threshold could
+live — the retreat terminated because its destination does not exist. Refinement that
+strengthens the kill: the diagonal results that DO hold for finite systems (Breuer
+no-self-measurement, Wolpert inference-device bounds) are UNIVERSAL among self-indexing
+observers — binding on all, discriminating none. Either way, the diagonal draws no line
+between finite observers.
+
+Re-read of #C1 in this light: the experiment was cleaner than its own findings entry.
+The architectural binary (TwistAssessment.structural — self-indexing wiring
+present/absent) sorted T from U 396/396; every dynamical quantity was graded; and the
+program's one genuine step function (earworm capture at dose = consensus-window size)
+sat at a finite-RESOURCE line. That is exactly the corrected theory's prediction: in
+finite systems, sharp lines come from architecture and resources; logic contributes only
+universal bounds. ro_framework.md v2.1 (§5.4–§5.5) now grounds binary-in-kind in
+self-indexing presence/absence and explicitly disavows the dynamical-hysteresis
+prediction this experiment was built to test. #C1 stands as the experiment that
+punished the wrong grounding and validated the right one in the same run.
