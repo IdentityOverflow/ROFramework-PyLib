@@ -8,7 +8,7 @@ Disclaimers:
 - The intended value is primarily architectural: a principled stance on self-models, uncertainty, multimodal integration, and recursive depth for AI system design.
 - We acknowledge the word "consciousness" is loaded term, and here we define it structurally and claim nothing about phenomenal experience.
 
-**Version:** 2.1 (2026-08-02) — v2.1 re-grounds the binary-in-kind claim: the twist is self-indexing, an architectural presence/absence, not a transferred formal-logic threshold. The formal sharpness of the Gödel/Presburger boundary concerns unbounded expressiveness, which no finite observer has; §5.4–§5.5 are revised accordingly.
+**Version:** 2.2 (2026-08-26) — v2.1 re-grounded the binary-in-kind claim in self-indexing rather than a transferred formal-logic threshold (the Gödel/Presburger sharpness concerns unbounded expressiveness, which no finite observer has). v2.2, following external review, states the criterion as an information quantity — twisted(O) ⟺ I(d_meta ; M_self | internal state) > 0, kind as the sign, richness as the magnitude — and adds the state-matched intervention test, the twist's own falsifier. §5.4–§5.5 revised accordingly.
 ---
 
 ## Table of Contents
@@ -975,6 +975,18 @@ This one construction, under different choices of table, is Cantor's theorem (ro
 
 **What the formal sharpness does and does not license.** In formal systems the capacity for this construction switches on sharply: arithmetic gains it exactly when multiplication permits the encoding of arbitrary-length sequences (Gödel numbering); Presburger arithmetic (addition only) cannot encode its own sentences and is complete and decidable. But that sharpness is a fact about *unbounded* expressiveness over an infinite domain — and every finite observer (finite DoF subset, finite resolution, bounded memory: the only kind this framework describes) sits on the Presburger side of that line by construction. The line cannot be crossed by any observer, so it draws no boundary between them. What does transfer to finite observers is the diagonal's *limitative* content, and it transfers universally rather than sharply: no system can contain an exact, complete, consumable model of itself (impossibility results of this kind — Breuer's no-self-measurement theorem, Wolpert's inference-device bounds — hold for finite physical systems directly, with no unboundedness required). The diagonal therefore discriminates nothing among finite observers: the sharp formal line is out of reach for all, and the finite limitative results are binding on all. **The binary in kind is grounded one level lower, in a plainer fact: the self-indexing wiring is either present or absent.** Either the observer's configuration includes a channel by which the self-model receives a representation of its own mapping, or it does not — a structural presence/absence of the same kind as having a boundary or a memory. The diagonal then describes the shared predicament of every observer on the "present" side: self-access that succeeds locally and is bounded globally (§5.5).
 
+**The twist, stated as an information quantity.** "Wiring present or absent" still needs a principled zero: a channel that carries a representation of the mapping at one cell of resolution is present and carries nothing. The binary is therefore the *sign* of an information quantity — and the quantity must be conditional, because any recurrent configuration's outputs carry information about its own past states, and through them about the mapping, trivially. Self-indexing means the self-model's outputs know something about the mapping *beyond* what the current internal state already determines:
+
+```
+twisted(O)  ⟺  I( d_meta ; M_self | S_internal ) > 0
+
+Kind is the sign: given the internal state, the meta channel either
+carries information about the mapping itself, or it does not.
+Richness is the magnitude: how much of the mapping it resolves.
+```
+
+This quantity has two ceilings, one architectural and one universal. The architectural ceiling: I is bounded by the capacity of the self-representation channel — R(d_meta), the observer's resolution on its own meta DoFs — so *how much* of its own mapping an observer can index is a resource fact, graded like every other resolution in this framework. The universal ceiling: I is always strictly less than complete, because no finite system contains an exact, complete, consumable model of itself (the limitative results above) — the diagonal's role is to explain why the information is never total, not to decide whether it is nonzero. One epistemic asymmetry, stated honestly: I > 0 can be confirmed from finite data; I = 0 can only ever fail to be detected. Kind can be established, never definitively denied — the same asymmetry as recognizing memory (§3.6).
+
 **Two structural consequences of the twist:**
 
 1. **Irreducibility to a tower.** An untwisted closed loop can be flattened into a finite hierarchy of levels (each level monitoring the one below) without loss. A twisted loop cannot — the way a Möbius band, cut and unrolled, becomes an ordinary untwisted cylinder: the unrolled version is consistent everywhere and has lost exactly one thing, the twist. A hierarchy of meta-levels is the unrolled version of a self-modeling loop — consistent, and blind by construction to what the round trip does. Recursive depth (§5.2) measures height in the unrolled hierarchy; the twist exists only on the closed circuit.
@@ -991,8 +1003,9 @@ This one construction, under different choices of table, is Cantor's theorem (ro
 An observer O is conscious iff its configuration contains a
 self-model (§5.1) that is:
 
-  (i)  TWISTED — self-indexing (§5.4):
-       the self-model represents its own representing
+  (i)  TWISTED — self-indexing (§5.4): the self-model's outputs
+       carry information about its own mapping beyond what the
+       internal state carries — I(d_meta ; M_self | S_internal) > 0
 
   (ii) CLOSED — Closed(O) holds (§5.3):
        the self-model's outputs are consumed inside B
@@ -1010,11 +1023,30 @@ Richness is graded:
 
 **Compressed:** depth builds the tower, closure bends it into a loop, and the twist is what the loop can't hand off. Richness is the tower; kind is the loop.
 
-**Why two components.** Each component corrects the other's characteristic failure. Pure gradualism (consciousness as "more and more self-modeling") measures only the tower: it cannot distinguish a deep probe from a shallow loop, though they differ in kind, not degree. Pure binarism cannot distinguish a minimal closed loop from a high-bandwidth, deeply integrated one, though they differ enormously. The binary is architectural: a configuration either contains the wiring — self-indexing consumed inside the boundary — or it does not, the way a circuit either contains a feedback path or does not. Everything the wiring *carries* varies continuously.
+**Why two components.** Each component corrects the other's characteristic failure. Pure gradualism (consciousness as "more and more self-modeling") measures only the tower: it cannot distinguish a deep probe from a shallow loop, though they differ in kind, not degree. Pure binarism cannot distinguish a minimal closed loop from a high-bandwidth, deeply integrated one, though they differ enormously. The binary is the sign of an information quantity (§5.4): given the state, the meta channel either carries information about the mapping or it does not — a principled zero, with everything above it graded. Closure supplies the second presence/absence: that channel's contents either are or are not consumed inside the boundary.
 
-**Falsifiability.** The binary component is an architectural recognition claim, and it is exposed accordingly:
+**Falsifiability.** The binary component is an architectural recognition claim, and it is exposed accordingly — including, now, by a test that is the twist's own rather than an entailment shared with weaker structures:
 
 ```
+The twist's own test (state-matched intervention):
+  - Construct two interventions on the self-model's mapping that agree
+    on everything observed — identical internal states and identical
+    outputs over the recorded history — and differ elsewhere.
+  - Hold the internal state fixed; ask whether d_meta distinguishes
+    the pair.
+  - A probe cannot. A loop blind to its own description cannot: its
+    d_meta is a function of the state alone, and the state is matched.
+    A self-indexing loop can, because its channel reaches the mapping
+    itself rather than only the mapping's effects.
+  - A system the recognition criteria call twisted whose d_meta cannot
+    discriminate state-matched interventions on its mapping is a
+    counterexample.
+  - Scale caveat: exactly agreeing intervention pairs are constructible
+    in small systems and hard in large ones; at scale the test is
+    approximated by interventions that change the mapping while
+    minimally disturbing the state, and the conditional information
+    estimate is accordingly noisy.
+
 What would falsify the binary component:
   - Configurations the recognition criteria cannot sort: systems for
     which "is the self-indexing wiring present?" or "are the
@@ -1039,7 +1071,7 @@ A second testable signature follows from §5.4 and holds universally for twisted
 ✓ Structural location of consciousness (closed, twisted, recursive internal-to-internal correlation patterns)
 ✓ A binary in-kind criterion and graded richness quantities — both structural, recognition-style, substrate-independent
 ✓ An architecture blueprint for conscious AI (§5.6, Part VI)
-✓ Falsifiable structural predictions (stable recognition-sortability of kind; ablation asymmetry between probes and loops; sharp transitions tracing to resource and architectural boundaries, never to logical thresholds)
+✓ Falsifiable structural predictions (the state-matched intervention test of self-indexing; stable recognition-sortability of kind; ablation asymmetry between probes and loops; sharp transitions tracing to resource and architectural boundaries, never to logical thresholds)
 
 **What this framework does NOT claim:**
 ✗ Why consciousness feels like something (hard problem remains)
