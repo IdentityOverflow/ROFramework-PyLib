@@ -443,19 +443,26 @@ class Observer:
         return self.closure_assessment(lag=lag, min_samples=min_samples).closed
 
     def twist_assessment(self, n_perturb: int = 8,
-                         perturb_scale: float = 0.1, seed: int = 0):
-        """Recognize twisted(O): does the self-model represent its own
-        representing? (§5.4; see observer.self_encoding.TwistAssessment.)"""
+                         perturb_scale: float = 0.1, n_foils: int = 4,
+                         foil_scale: float = 0.3, seed: int = 0):
+        """Recognize twisted(O): does the self-model's output carry
+        information about its own mapping beyond the state —
+        I(d_meta ; M_self | S) > 0? (§5.4; white-box consumption checks +
+        the state-matched battery-foil intervention test; see
+        observer.self_encoding.TwistAssessment.)"""
         from ro_framework.observer.self_encoding import assess_twist
 
         return assess_twist(self, n_perturb=n_perturb,
-                            perturb_scale=perturb_scale, seed=seed)
+                            perturb_scale=perturb_scale, n_foils=n_foils,
+                            foil_scale=foil_scale, seed=seed)
 
     def is_twisted(self, n_perturb: int = 8, perturb_scale: float = 0.1,
+                   n_foils: int = 4, foil_scale: float = 0.3,
                    seed: int = 0) -> bool:
         """Convenience: twisted(O) as a bool. See twist_assessment()."""
         return self.twist_assessment(
-            n_perturb=n_perturb, perturb_scale=perturb_scale, seed=seed
+            n_perturb=n_perturb, perturb_scale=perturb_scale,
+            n_foils=n_foils, foil_scale=foil_scale, seed=seed
         ).twisted
 
     # ------------------------------------------------------------------

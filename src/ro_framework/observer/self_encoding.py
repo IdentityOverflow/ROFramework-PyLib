@@ -25,6 +25,23 @@ and (b) discrimination: output distinguishes the true self-encoding from a
 permuted foil. Permutation preserves summary statistics, so a system that
 consumes only a mean of its self-description — a statistic, not a
 description — is refused.
+
+The criterion itself (ro_framework.md §5.4 v2.2) is conditional-
+informational: twisted(O) ⟺ I(d_meta ; M_self | S_internal) > 0 — the
+meta channel carries information about the mapping beyond what the state
+determines. The `consumes` checks above are white-box approximations that
+intervene on the channel CONTENTS and presuppose the channel tracks the
+mapping; a consumed-but-stale channel passes them. The `conditional`
+clause runs the state-matched intervention test end-to-end: a battery
+foil — a mapping agreeing with the self-model on every input off the
+blanked probe battery (hence on the entire runtime history) and differing
+on it — is passed through the ENCODER, and d_meta must distinguish
+foil from original at the same internal state. A live self-indexing
+channel discriminates (the encodings differ and are consumed); a blind
+model cannot (d_meta is a function of state alone); a stale/garbage
+channel cannot (the encoder returns the same values for both mappings).
+Foil discrimination above resolution is finite-sample evidence that the
+conditional information is nonzero.
 """
 
 from dataclasses import dataclass
@@ -46,12 +63,21 @@ class TwistAssessment:
             of its DoFs (response block + resolution block) are declared
             inputs of the self-model.
         sensitivity: mean |Δ d_meta| under Gaussian perturbation of the
-            encoding inputs, compared against d_meta resolution.
+            encoding inputs, compared against d_meta resolution
+            (white-box: intervenes on channel contents).
         discrimination: mean |Δ d_meta| between the true self-encoding and
-            a permuted foil — position-sensitivity of the consumption.
+            a permuted foil — position-sensitivity of the consumption
+            (white-box).
         consumes: sensitivity AND discrimination both exceed resolution.
-        twisted: structural AND consumes. Binary in kind; the graded
-            magnitudes are reported alongside.
+        foil_discrimination: mean |Δ d_meta| between the self-model and a
+            battery foil (state-matched intervention on the MAPPING,
+            routed through the encoder) — finite-sample evidence that
+            I(d_meta ; M_self | S) > 0.
+        conditional: foil_discrimination exceeds resolution.
+        twisted: structural AND consumes AND conditional. Binary in kind;
+            the graded magnitudes are reported alongside. Note the
+            epistemic asymmetry: a pass confirms I > 0; a fail is
+            fail-to-detect, not proof of I = 0.
     """
 
     structural: bool
@@ -60,6 +86,8 @@ class TwistAssessment:
     resolution_scale: float
     consumes: bool
     twisted: bool
+    foil_discrimination: float = 0.0
+    conditional: bool = False
 
 
 class BehavioralEncoder:
@@ -129,16 +157,69 @@ class BehavioralEncoder:
         return State(values=values)
 
 
+class _BatteryFoil:
+    """A state-matched intervention on a mapping.
+
+    Agrees with the wrapped mapping on every input EXCEPT the blanked
+    probe battery (all encoder DoFs exactly 0.0) — which occurs only
+    inside BehavioralEncoder.encode(), never in runtime operation — so
+    the foil and the original produce identical internal states, outputs,
+    and d_meta over any recorded history. On battery inputs the foil's
+    responses are shifted by a smooth per-probe offset, so its behavioral
+    encoding differs. Whether d_meta then distinguishes foil from
+    original at the same state is the §5.4 v2.2 test.
+    """
+
+    def __init__(self, mapping, encoder: BehavioralEncoder,
+                 delta_scale: float, rng: np.random.Generator) -> None:
+        self._mapping = mapping
+        self._encoder = encoder
+        self._w = float(rng.uniform(1.5, 4.0))
+        self._phi = float(rng.uniform(0.0, 2 * np.pi))
+        self._amp = delta_scale
+        self.input_dofs = list(getattr(mapping, "input_dofs", []) or [])
+        self.output_dofs = list(getattr(mapping, "output_dofs", []) or [])
+
+    def _on_battery(self, state: State) -> bool:
+        for dof in self._encoder.all_dofs:
+            v = state.get_value(dof)
+            if v is None or float(v) != 0.0:
+                return False
+        return True
+
+    def __call__(self, state: State) -> State:
+        out = self._mapping(state)
+        if not self._on_battery(state):
+            return out
+        # smooth probe-dependent offset: distinct probes shift distinctly
+        probe_key = 0.0
+        for dof in self._encoder.response_dofs:
+            v = state.get_value(dof)
+            if isinstance(v, (int, float)):
+                probe_key += float(v)
+        shift = self._amp * float(np.cos(self._w * probe_key + self._phi))
+        for dof in self.output_dofs:
+            v = out.get_value(dof)
+            if isinstance(v, (int, float)):
+                out = out.set_value(dof, float(v) + shift)
+        return out
+
+
 def assess_twist(
     observer,
     n_perturb: int = 8,
     perturb_scale: float = 0.1,
+    n_foils: int = 4,
+    foil_scale: float = 0.3,
     seed: int = 0,
 ) -> TwistAssessment:
     """Recognize twisted(O) for an Observer (see TwistAssessment).
 
-    Pure recognition over the observer's current configuration: no state
-    is mutated and nothing is logged.
+    Runs the white-box consumption checks (sensitivity, permutation
+    discrimination) and the conditional state-matched intervention test
+    (battery foils through the encoder). Pure recognition over the
+    observer's current configuration: no state is mutated and nothing is
+    logged.
     """
     encoder = observer.self_encoder
     model = observer.self_model
@@ -207,8 +288,23 @@ def assess_twist(
     discrimination = float(np.mean(disc_deltas)) if disc_deltas else 0.0
 
     consumes = sensitivity > res_scale and discrimination > res_scale
+
+    # (c) conditional: state-matched intervention on the MAPPING itself,
+    # routed through the encoder. Catches the consumed-but-stale channel
+    # that (a)/(b) cannot: if the encoder no longer tracks the mapping,
+    # foil and original encode identically and nothing here moves.
+    cond_deltas = []
+    for i in range(n_foils):
+        foil = _BatteryFoil(model, encoder, foil_scale, rng)
+        enc_foil = encoder.encode(foil, resolution)
+        cond_deltas.append(float(np.mean(np.abs(_apply(enc_foil) - base))))
+    foil_disc = float(np.mean(cond_deltas)) if cond_deltas else 0.0
+    conditional = foil_disc > res_scale
+
     return TwistAssessment(
         structural=structural, sensitivity=sensitivity,
         discrimination=discrimination, resolution_scale=res_scale,
-        consumes=consumes, twisted=bool(structural and consumes),
+        consumes=consumes,
+        twisted=bool(structural and consumes and conditional),
+        foil_discrimination=foil_disc, conditional=conditional,
     )

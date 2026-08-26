@@ -163,6 +163,65 @@ class TestTwistRecognition:
         assert a.twisted is True
 
 
+class StaleEncoder(BehavioralEncoder):
+    """A garbage channel: wired, consumed, carrying nothing.
+
+    encode() ignores the mapping and returns frozen constants — the
+    channel no longer tracks its cargo. White-box perturbation still
+    elicits responses from a consuming model (the model reacts to
+    perturbed garbage), but the conditional state-matched intervention
+    test must fail: foil and original encode identically.
+    """
+
+    def encode(self, mapping, resolution=None):
+        resolution = resolution or {}
+        values = {}
+        for i, dof in enumerate(self.d_enc):
+            values[dof] = 0.37 * (i + 1)          # frozen, mapping-independent
+        for j, dof in enumerate(self.d_res):
+            values[dof] = float(resolution.get(self.response_dofs[j], 1e-6))
+        from ro_framework.core.state import State as _State
+        return _State(values=values)
+
+
+class TestConditionalClause:
+    """The v2.2 state-matched intervention test (§5.4)."""
+
+    def test_live_channel_passes_conditional(self):
+        enc = _make_encoder()
+        obs = Observer("o", [INT], [EXT], RecurrentModel(),
+                       self_model=TwistedSelfModel(enc), self_encoder=enc)
+        obs.observe(State(values={EXT: 1.0}))
+        a = obs.twist_assessment()
+        assert a.foil_discrimination > a.resolution_scale
+        assert a.conditional is True
+        assert a.twisted is True
+
+    def test_blind_model_fails_conditional(self):
+        enc = _make_encoder()
+        obs = Observer("o", [INT], [EXT], RecurrentModel(),
+                       self_model=BlindSelfModel(enc), self_encoder=enc)
+        obs.observe(State(values={EXT: 1.0}))
+        a = obs.twist_assessment()
+        assert a.conditional is False
+
+    def test_garbage_channel_dissociation(self):
+        """THE hole the conditional clause closes: a consuming model on a
+        stale channel passes the white-box checks and must fail the
+        conditional one — consumption of a channel is not the channel
+        carrying its cargo."""
+        enc = StaleEncoder(PROBES, [INT])
+        obs = Observer("o", [INT], [EXT], RecurrentModel(),
+                       self_model=TwistedSelfModel(enc), self_encoder=enc)
+        obs.observe(State(values={EXT: 1.0}))
+        a = obs.twist_assessment()
+        assert a.structural is True
+        assert a.consumes is True                 # white-box checks pass
+        assert a.foil_discrimination <= a.resolution_scale
+        assert a.conditional is False             # conditional catches it
+        assert a.twisted is False
+
+
 class TestV2Criterion:
     """is_conscious() = Closed(O) AND twisted(O) — binary in kind."""
 

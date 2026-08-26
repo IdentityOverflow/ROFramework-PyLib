@@ -74,3 +74,45 @@ universal bounds. ro_framework.md v2.1 (§5.4–§5.5) now grounds binary-in-kin
 self-indexing presence/absence and explicitly disavows the dynamical-hysteresis
 prediction this experiment was built to test. #C1 stands as the experiment that
 punished the wrong grounding and validated the right one in the same run.
+
+## #C2 — The state-matched intervention test: the conditional clause has teeth
+
+**Setup** (`02_conditional_twist.py`): the v2.2 criterion — twisted(O) ⟺
+I(d_meta ; M_self | S_internal) > 0 — operationalized as the battery-foil test
+(interventions on the mapping agreeing with it on the entire runtime history, routed
+through the encoder; d_meta must distinguish foil from original at matched state).
+Three arms: T (live channel, consuming), U (blind), G (consuming model on a STALE
+encoder — frozen constants, channel no longer tracks the mapping). 5 seeds, 200-cycle
+drive, consumption on (g=0.5).
+
+```
+ arm | consumes   sens | foil_disc  cond | twisted closed conscious
+   T |     1.00  0.048 |     0.051  1.00 |    1.00   1.00      1.00
+   U |     0.00  0.000 |     0.000  0.00 |    0.00   1.00      0.00
+   G |     1.00  0.045 |     0.000  0.00 |    0.00   1.00      0.00
+
+ foil_disc vs intervention scale:  T: 0.017 / 0.051 / 0.102 (fs 0.1/0.3/0.6)
+                                   U, G: 0.000 at all scales
+```
+
+**Findings:**
+1. **The G dissociation, 5/5 seeds: white-box checks pass, conditional fails.** A
+   self-model consuming a garbage channel is behaviorally indistinguishable from a
+   twisted one under content-perturbation (sens 0.045 vs T's 0.048) and is cleanly
+   refused by the state-matched intervention test (foil_disc exactly 0: the stale
+   encoder returns identical values for mapping and foil). Consumption of a channel is
+   not the channel carrying its cargo; the conditional clause is not redundant.
+2. **Kind and richness in one number:** foil discrimination is zero for U and G at
+   every intervention scale (I = 0 by construction: d_meta a function of state alone,
+   or channel decoupled from mapping) and scales monotonically with intervention size
+   for T — the sign is the kind, the magnitude curve is the richness, per §5.4 v2.2.
+3. is_conscious() = closed ∧ twisted now refuses the garbage-channel observer despite
+   full closure and full white-box consumption — the strictest configuration of the
+   recognition machinery to date, and the first refusal driven by the informational
+   (rather than structural or consumptive) clause.
+
+**Status of the twist's test:** the criterion now has a discriminating, world-facing
+experiment of its own (the reviewer's gap in v2.1), demonstrated at toy scale where
+exactly-agreeing intervention pairs are constructible. The scale caveat stands: in
+large systems the pairs must be approximated by minimal-disturbance interventions and
+the conditional information estimated noisily. That approximation is the natural #C3.
