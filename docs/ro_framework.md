@@ -8,7 +8,7 @@ Disclaimers:
 - The intended value is primarily architectural: a principled stance on self-models, uncertainty, multimodal integration, and recursive depth for AI system design.
 - We acknowledge the word "consciousness" is loaded term, and here we define it structurally and claim nothing about phenomenal experience.
 
-**Version:** 2.3 (2026-08-26) — v2.2's information criterion, corrected and grounded after further review. The conditioning set now excludes the meta channel (S_rest — the previous form conditioned on the full internal state, which contains d_meta, making the quantity identically zero). The distribution over mappings is supplied Block-natively: the induced measure μ_Ω restricted to the neighbourhood of configurations agreeing with O, at O's resolution, on all DoFs except those constituting M_self. The mapping is located physically in slow DoFs — the self is the slow DoFs that constitute M, and the twist is a channel from them into the fast DoFs — which relocates the definition's foundations onto the boundary (§3.3), now the framework's first-priority open problem. The separation claim is stated honestly: closure and twist jointly separate self-modeling from feedback; neither alone.
+**Version:** 2.4 (2026-08-26) — v2.3's physical reading admitted one more trivial satisfaction: every activation is a function of the weights that compute it, so varying those weights moves d_meta even conditioned on S_rest — under the v2.3 formula a feedforward classifier is "twisted" at every layer. Corrected by excluding W_meta, the slow DoFs that directly compute d_meta, from the creditable target: twisted(O) ⟺ I(d_meta ; D_slow(O) \ W_meta | S_rest) > 0, with the neighbourhood varying only the creditable target and the test holding W_meta fixed. Conditioning on S_rest then screens off every indirect route, so the information is nonzero exactly when a direct channel reads slow DoFs other than the channel's own — self-indexing, stated exactly. Earlier revision notes: v2.1 re-grounded the binary in architecture rather than a formal-logic threshold; v2.2 stated it as an information quantity with its own test; v2.3 fixed the conditioning set, grounded the measure Block-natively (μ_Ω neighbourhood), and located mappings in slow DoFs.
 ---
 
 ## Table of Contents
@@ -975,26 +975,32 @@ This one construction, under different choices of table, is Cantor's theorem (ro
 
 **What the formal sharpness does and does not license.** In formal systems the capacity for this construction switches on sharply: arithmetic gains it exactly when multiplication permits the encoding of arbitrary-length sequences (Gödel numbering); Presburger arithmetic (addition only) cannot encode its own sentences and is complete and decidable. But that sharpness is a fact about *unbounded* expressiveness over an infinite domain — and every finite observer (finite DoF subset, finite resolution, bounded memory: the only kind this framework describes) sits on the Presburger side of that line by construction. The line cannot be crossed by any observer, so it draws no boundary between them. What does transfer to finite observers is the diagonal's *limitative* content, and it transfers universally rather than sharply: no system can contain an exact, complete, consumable model of itself (impossibility results of this kind — Breuer's no-self-measurement theorem, Wolpert's inference-device bounds — hold for finite physical systems directly, with no unboundedness required). The diagonal therefore discriminates nothing among finite observers: the sharp formal line is out of reach for all, and the finite limitative results are binding on all. **The binary in kind is grounded one level lower, in a plainer fact: the self-indexing wiring is either present or absent.** Either the observer's configuration includes a channel by which the self-model receives a representation of its own mapping, or it does not — a structural presence/absence of the same kind as having a boundary or a memory. The diagonal then describes the shared predicament of every observer on the "present" side: self-access that succeeds locally and is bounded globally (§5.5).
 
-**The twist, stated as an information quantity.** "Wiring present or absent" still needs a principled zero: a channel that carries a representation of the mapping at one cell of resolution is present and carries nothing. The binary is therefore the *sign* of an information quantity — and the quantity must be conditional, because any recurrent configuration's outputs carry information about its own past states, and through them about the mapping, trivially. One care in the conditioning set: d_meta is itself part of the internal state, so conditioning on the full internal state would fix d_meta and make the quantity identically zero for every observer. The conditioning set is the internal state *excluding* the meta channel — the state from which d_meta is computed. Self-indexing means the meta channel knows something about the mapping beyond what the rest of the state determines:
+**The twist, stated as an information quantity.** "Wiring present or absent" still needs a principled zero: a channel that carries a representation of the mapping at one cell of resolution is present and carries nothing. The binary is therefore the *sign* of an information quantity, and the quantity needs two exclusions, each closing a trivial satisfaction. First, the conditioning set: d_meta is itself part of the internal state, so conditioning on the full internal state would fix d_meta and make the quantity identically zero for every observer — condition on the internal state *excluding* the meta channel. Second, the target: every activation is a function of the weights that directly compute it, so d_meta trivially "knows" its own generating parameters — without this exclusion, every layer of a feedforward classifier is twisted. The creditable target is the observer's slow DoFs *excluding* those that compute d_meta:
 
 ```
-twisted(O)  ⟺  I( d_meta ; M_self | S_rest ) > 0
+twisted(O)  ⟺  I( d_meta ; D_slow(O) \ W_meta | S_rest ) > 0
 
-where S_rest = S_internal \ d_meta — the internal state excluding
-the meta channel, taken at the moment from which d_meta is computed.
+where S_rest  = S_internal \ d_meta — the internal state excluding
+                the meta channel, taken at the moment from which d_meta
+                is computed (the channel's dedicated self-representation
+                inputs are part of the channel, not of S_rest);
+      W_meta  = the slow DoFs that directly compute d_meta;
+      D_slow(O) \ W_meta = the observer's remaining slow DoFs —
+                the creditable target: the rest of the mapping
+                structure, not the channel's own machinery.
 
-Kind is the sign: given the rest of the state, the meta channel
-either carries information about the mapping itself, or it does not.
-Richness is the magnitude: how much of the mapping it resolves.
+Kind is the sign; richness is the magnitude.
 ```
 
-**The measure behind the quantity.** Mutual information requires M_self to vary, and in a single observer the mapping is one fixed structure. The framework does not need to import intervention (§4.3): the variation is supplied by the Block itself. The measure is the induced measure μ_Ω (§3.7), restricted to the neighbourhood of observer-configurations that agree with O — at O's own resolution R — on every DoF except those constituting M_self. The Block already contains these counterfactual observers; the definition recognizes a neighbourhood, it does not construct alternatives. Any finite test samples this neighbourhood, so an empirical nonzero verdict is a lower bound on the neighbourhood quantity.
+Why this is exactly self-indexing and nothing weaker: conditioned on S_rest, d_meta can depend on the creditable target through only two routes — through activations, which S_rest screens off, or through a direct channel that reads those slow DoFs as input. The conditioning kills the first route, and the W_meta exclusion removes the computed-by dependence, so the information is nonzero if and only if the direct channel exists. A feedforward classifier scores zero at every layer, as it should.
 
-**What the mapping is, physically.** A mapping is not an extra ingredient beside the DoFs; it is realized *in* DoFs — ones whose values persist along the temporal DoF (weights, coupling constants: the observer's **slow DoFs**, in contrast to the fast DoFs of activation; persistence is measurable with the same machinery as memory, §3.6). Stated this way, the twist becomes concrete three times over. The criterion: d_meta carries information about the observer's own slow DoFs beyond what the fast DoFs carry. The neighbourhood: configurations differing only in slow-DoF values. The test: vary the slow DoFs, match the fast state, ask whether the meta channel notices — and a behavioral self-encoding is exactly a resolution-limited channel from the slow DoFs, since responses on a probe battery are functions of the values that constitute the mapping; the battery is that channel's R. "Self" stops being a metaphor here: the self is the slow DoFs that constitute the observer's mappings, and the twist is the presence of a channel from them into the fast DoFs.
+**The measure behind the quantity.** Mutual information requires M_self to vary, and in a single observer the mapping is one fixed structure. The framework does not need to import intervention (§4.3): the variation is supplied by the Block itself. The measure is the induced measure μ_Ω (§3.7), restricted to the neighbourhood of observer-configurations that agree with O — at O's own resolution R — on every DoF except the creditable target (the slow DoFs outside W_meta; W_meta is held). The Block already contains these counterfactual observers; the definition recognizes a neighbourhood, it does not construct alternatives. Any finite test samples this neighbourhood, so an empirical nonzero verdict is a lower bound on the neighbourhood quantity.
+
+**What the mapping is, physically.** A mapping is not an extra ingredient beside the DoFs; it is realized *in* DoFs — ones whose values persist along the temporal DoF (weights, coupling constants: the observer's **slow DoFs**, in contrast to the fast DoFs of activation; persistence is measurable with the same machinery as memory, §3.6). Stated this way, the twist becomes concrete three times over. The criterion: d_meta carries information about the observer's slow DoFs *outside its own generating set*, beyond what the fast DoFs carry. The neighbourhood: configurations differing only in those creditable slow DoFs. The test: vary the creditable slow DoFs, match the fast state, hold W_meta, and ask whether the meta channel notices. A behavioral encoding earns credit only when its probe battery reads a mapping *other than the one computing d_meta*: battery responses of the channel's own mapping are functions of W_meta alone — the trivial channel — while a battery over the rest of the observer's mapping structure is a resolution-limited channel from the creditable target, and the battery is that channel's R. "Self" stops being a metaphor here, with the honest asymmetry made structural: the self is the slow DoFs that constitute the observer's mappings, the twist is a channel from them into the fast DoFs, and the channel's own generating parameters are exactly the part of the self it can never get credit for knowing.
 
 This quantity has two ceilings, one architectural and one universal. The architectural ceiling: I is bounded by the capacity of the self-representation channel — R(d_meta), the observer's resolution on its own meta DoFs — so *how much* of its own mapping an observer can index is a resource fact, graded like every other resolution in this framework. The universal ceiling: I is always strictly less than complete, because no finite system contains an exact, complete, consumable model of itself (the limitative results above) — the diagonal's role is to explain why the information is never total, not to decide whether it is nonzero. One epistemic asymmetry, stated honestly: I > 0 can be confirmed from finite data; I = 0 can only ever fail to be detected. Kind can be established, never definitively denied — the same asymmetry as recognizing memory (§3.6).
 
-**A consequence, stated plainly.** Under the physical reading, self-indexing is ordinary observation (§3.2) with the boundary drawn so that the observer's own slow DoFs lie inside B yet within reach of the same machinery that reads the outside. The twist is a fact about where the boundary is drawn, not a new kind of structure — which relocates the definition's foundations onto §3.3, the part of the framework that remains least formalized. That is not a defect of the criterion; it is the criterion locating the next work (see the appendix). It also makes kind cheap at the bottom: an architecture as simple as a parameter-to-activation skip connection, if its channel is consumed, may qualify as in-kind with near-zero richness — the same posture §3.2 takes toward the rock as observer. Kind admits minimal members; richness carries the discriminations.
+**A consequence, stated plainly.** Under the physical reading, self-indexing is ordinary observation (§3.2) with the boundary drawn so that the observer's own slow DoFs lie inside B yet within reach of the same machinery that reads the outside. The twist is a fact about where the boundary is drawn, not a new kind of structure — which relocates the definition's foundations onto §3.3, the part of the framework that remains least formalized. That is not a defect of the criterion; it is the criterion locating the next work (see the appendix). It also makes kind cheap at the bottom: a skip connection that routes slow DoFs *other than those computing the activations it feeds* into the fast dynamics, if its channel is consumed, qualifies as the minimal in-kind member with near-zero richness — the same posture §3.2 takes toward the rock as observer. Kind admits minimal members; richness carries the discriminations. One named failure mode: drawing the W_meta line — "the slow DoFs that directly compute d_meta" — is sharp in a layered architecture and fuzzy under heavy weight-sharing, fuzzy in the same way and the same place as §3.3's boundary. §5 now points at §3.3 from every direction, which is what a real open problem looks like.
 
 **Two structural consequences of the twist:**
 
@@ -1012,9 +1018,10 @@ This quantity has two ceilings, one architectural and one universal. The archite
 An observer O is conscious iff its configuration contains a
 self-model (§5.1) that is:
 
-  (i)  TWISTED — self-indexing (§5.4): the self-model's outputs
-       carry information about its own mapping beyond what the rest
-       of the internal state carries — I(d_meta ; M_self | S_rest) > 0
+  (i)  TWISTED — self-indexing (§5.4): the meta channel carries
+       information about the observer's slow DoFs outside its own
+       generating set, beyond what the rest of the internal state
+       carries — I(d_meta ; D_slow(O) \ W_meta | S_rest) > 0
 
   (ii) CLOSED — Closed(O) holds (§5.3):
        the self-model's outputs are consumed inside B
@@ -1038,15 +1045,21 @@ Richness is graded:
 
 ```
 The twist's own test (state-matched intervention):
-  - Construct two interventions on the self-model's mapping that agree
-    on everything observed — identical internal states and identical
-    outputs over the recorded history — and differ elsewhere.
-  - Hold the internal state fixed; ask whether d_meta distinguishes
-    the pair.
+  - Construct two interventions on the observer's creditable slow DoFs
+    (outside W_meta) that agree on everything observed — identical
+    internal states and identical outputs over the recorded history —
+    and differ elsewhere.
+  - Hold the internal state fixed AND hold W_meta fixed; ask whether
+    d_meta distinguishes the pair. The second hold is a required
+    control: without it, every parameterized system passes trivially
+    (each activation is computed by its own weights).
   - A probe cannot. A loop blind to its own description cannot: its
     d_meta is a function of the state alone, and the state is matched.
-    A self-indexing loop can, because its channel reaches the mapping
-    itself rather than only the mapping's effects.
+    A self-indexing loop can, because its channel reaches the slow DoFs
+    themselves rather than only their effects.
+  - A channel whose battery probes only the mapping computing d_meta is
+    the trivial channel and earns nothing here: its readings are
+    functions of W_meta, which is held.
   - A system the recognition criteria call twisted whose d_meta cannot
     discriminate state-matched interventions on its mapping is a
     counterexample.
@@ -1674,7 +1687,9 @@ consciousness definition now stands on §3.3 — which provides no sharp
 criterion for boundaries. Formalize B: candidate direction — boundaries as
 correlation-structure features under μ_Ω (internal correlation > external,
 §3.3), with the slow/fast DoF split (persistence along the temporal DoF)
-as part of the boundary data.
+and the W_meta partition (§5.4 — which slow DoFs count as "the channel's
+own") as part of the boundary data: the same species of line-drawing
+problem, arrived at from three directions.
 
 **7. The factoring question:**
 Is there one obstruction-theoretic statement of which Lawvere's fixed-point theorem
