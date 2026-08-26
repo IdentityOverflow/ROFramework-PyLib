@@ -163,8 +163,13 @@ class Observer:
             by design: the §5.5 closure-sweep experiment turns this knob.
         self_encoder: Optional BehavioralEncoder (§5.4, the twist): when
             attached, the self-model's input is augmented with a behavioral
-            encoding of the self-model itself plus R(d_meta) — the
-            self-model receives a description of its own representing.
+            encoding of the encoder's target mapping plus R(d_meta).
+        self_encoder_target: the mapping the self-encoder probes. Defaults
+            to the self-model itself — which v2.4 marks as the TRIVIAL
+            channel (battery responses of the mapping computing d_meta are
+            functions of W_meta, the channel's own generating parameters,
+            and earn no twist credit). Point it at slow DoFs outside
+            W_meta — e.g. the world model — for a creditable channel.
         observation_log: Paired observation history.
         internal_state: Current internal state.
     """
@@ -179,6 +184,7 @@ class Observer:
     log_capacity: int = 1000
     consumption_gain: float = 0.0
     self_encoder: Optional[Any] = None
+    self_encoder_target: Optional[Any] = None
     internal_state: Optional[State] = None
 
     # Non-init field, created in __post_init__
@@ -334,7 +340,8 @@ class Observer:
         if self.self_encoder is None or self.self_model is None:
             return state
         resolution = {d: self.get_resolution(d) for d in self.d_meta}
-        enc = self.self_encoder.encode(self.self_model, resolution)
+        target = self.self_encoder_target or self.self_model
+        enc = self.self_encoder.encode(target, resolution)
         for dof in self.self_encoder.all_dofs:
             v = enc.get_value(dof)
             if v is not None:

@@ -116,3 +116,54 @@ experiment of its own (the reviewer's gap in v2.1), demonstrated at toy scale wh
 exactly-agreeing intervention pairs are constructible. The scale caveat stands: in
 large systems the pairs must be approximated by minimal-disturbance interventions and
 the conditional information estimated noisily. That approximation is the natural #C3.
+
+## #C2b — The creditable twist: W_meta excluded, the former flagship becomes the negative control
+
+**Context:** third review round found v2.3's physical reading trivially satisfied — every
+activation is a function of its own generating weights, so under the v2.3 formula a
+feedforward classifier is "twisted" at every layer. v2.4 excludes W_meta (the slow DoFs
+directly computing d_meta) from the creditable target: twisted(O) ⟺
+I(d_meta ; D_slow(O) \ W_meta | S_rest) > 0, test = vary creditable slow DoFs, match fast
+state, HOLD W_meta. Applying the corrected criterion to our own #C1/#C2 fixtures revealed
+their T-arms were instances of the trivial channel: the battery-encoding of M_self reads
+only W_meta (d_meta carries zero information about any slow DoF outside its generating
+set — analytic, and now measured).
+
+**Setup** (`03_creditable_twist.py`; `self_encoder_target` on Observer, `target_is_meta`
+in assess_twist): world model with real slow DoFs (a, b); arms Tw (channel probes the
+WORLD model — creditable), Ts (channel probes ITSELF — #C2's flagship, now negative
+control), U (blind), G (stale). creditable_disc = REAL weight intervention (a → a+0.3),
+fast state matched, W_meta untouched. 5 seeds.
+
+```
+ arm | consumes cond trivial | twisted closed conscious | cred_disc
+  Tw |     1.00 1.00    0.00 |    1.00   1.00      1.00 |   0.0069
+  Ts |     1.00 1.00    1.00 |    0.00   1.00      0.00 |   0.0000
+   U |     0.00 0.00    0.00 |    0.00   1.00      0.00 |   0.0000
+   G |     1.00 0.00    0.00 |    0.00   1.00      0.00 |   0.0000
+```
+
+**Findings:**
+1. **The Ts signature, 5/5: live + consumed + conditional-on-its-own-channel — and
+   creditable discrimination EXACTLY zero.** The self-targeted channel is real machinery
+   carrying real information — about nothing but its own generating parameters. Varying
+   the world's weights with fast state matched moves its d_meta by 0.0 to machine
+   precision. The v2.4 exclusion is not pedantry; it separates a channel that reaches
+   the observer's mapping structure from one that reaches only itself.
+2. **Tw passes end-to-end under the required control:** world-weight intervention with
+   W_meta held moves d_meta (0.0069 mean |Δ|, > 0 in every seed), the battery-foil
+   conditional test fires, and is_conscious() = closed ∧ twisted recognizes it. The
+   creditable channel demonstrably reaches slow DoFs outside its own generating set.
+3. **Reclassification of the record:** #C1's and #C2's "twisted" columns measured
+   channel-liveness and consumption of a self-targeted (trivial) channel; their
+   machinery results stand (garbage-channel dissociation, gradualism of dynamics,
+   396/396 recognition sorting), but none of their arms was v2.4-twisted. #C2b's Tw is
+   the first observer in this program that satisfies the criterion as now stated.
+4. Implementation note: the identity case (target IS the meta-computing mapping) is
+   detected and refused; partial W_meta overlap under weight-sharing is the §3.3-species
+   line-drawing problem, named in the doc, not detected by code.
+
+### #C1/#C2 amendment (2026-08-26) — v2.4 reclassification
+Under ro_framework.md v2.4, the T-arms of #C1 and #C2 used the trivial (self-targeted)
+channel: their "twisted" verdicts read as consumption-of-a-live-channel, not creditable
+self-indexing. All machinery findings stand; the kind-attribution does not. See #C2b.

@@ -41,7 +41,14 @@ neighbourhood and a nonzero verdict is a lower bound. Physically
 (v2.3): a mapping is realized in slow DoFs (weights vs activations);
 the battery foil is a slow-DoF intervention matched on the fast state,
 and the behavioral encoding is a resolution-limited channel from the
-slow DoFs — the probe battery is that channel's R. The `consumes` checks above are white-box approximations that
+slow DoFs — the probe battery is that channel's R. v2.4 adds the
+required exclusion: the creditable target is D_slow(O) \ W_meta — a
+battery over the mapping that computes d_meta reads only the channel's
+own generating parameters (the trivial channel; every activation
+"knows" its own weights in that sense) and earns no twist credit.
+Creditable channels probe OTHER mappings (self_encoder_target, e.g. the
+world model), the foil varies the target with W_meta held, and the
+identity case target-is-self-model is detected and refused. The `consumes` checks above are white-box approximations that
 intervene on the channel CONTENTS and presuppose the channel tracks the
 mapping; a consumed-but-stale channel passes them. The `conditional`
 clause runs the state-matched intervention test end-to-end: a battery
@@ -86,7 +93,13 @@ class TwistAssessment:
             routed through the encoder) — finite-sample evidence that
             I(d_meta ; M_self | S) > 0.
         conditional: foil_discrimination exceeds resolution.
-        twisted: structural AND consumes AND conditional. Binary in kind;
+        target_is_meta: the encoder's target IS the mapping computing
+            d_meta — the trivial channel (its readings are functions of
+            W_meta, the channel's own generating parameters); no twist
+            credit (v2.4). Creditable channels probe slow DoFs outside
+            W_meta (e.g. the world model).
+        twisted: structural AND consumes AND conditional AND NOT
+            target_is_meta. Binary in kind;
             the graded magnitudes are reported alongside. Note the
             epistemic asymmetry: a pass confirms I > 0; a fail is
             fail-to-detect, not proof of I = 0. And the honest scope
@@ -103,6 +116,7 @@ class TwistAssessment:
     twisted: bool
     foil_discrimination: float = 0.0
     conditional: bool = False
+    target_is_meta: bool = True
 
 
 class BehavioralEncoder:
@@ -207,8 +221,12 @@ class _BatteryFoil:
         if not self._on_battery(state):
             return out
         # smooth probe-dependent offset: distinct probes shift distinctly
+        # (keyed on the wrapped mapping's inputs, excluding encoder DoFs)
+        enc_dofs = set(self._encoder.all_dofs)
+        key_dofs = [d for d in self.input_dofs if d not in enc_dofs] \
+            or self._encoder.response_dofs
         probe_key = 0.0
-        for dof in self._encoder.response_dofs:
+        for dof in key_dofs:
             v = state.get_value(dof)
             if isinstance(v, (int, float)):
                 probe_key += float(v)
@@ -255,8 +273,16 @@ def assess_twist(
     if not d_meta:
         return _refuse(structural)
 
+    # v2.4: the creditable target excludes W_meta. We detect the identity
+    # case — the encoder probing the very mapping that computes d_meta —
+    # and refuse it twist credit (the trivial channel). Partial overlaps
+    # (weight sharing) are the §3.3-species line-drawing problem and are
+    # not detected here.
+    target = getattr(observer, "self_encoder_target", None) or model
+    target_is_meta = target is model
+
     resolution = {d: observer.get_resolution(d) for d in d_meta}
-    enc_true = encoder.encode(model, resolution)
+    enc_true = encoder.encode(target, resolution)
 
     def _apply(enc_state: State) -> np.ndarray:
         s = observer.internal_state
@@ -308,9 +334,12 @@ def assess_twist(
     # routed through the encoder. Catches the consumed-but-stale channel
     # that (a)/(b) cannot: if the encoder no longer tracks the mapping,
     # foil and original encode identically and nothing here moves.
+    # The foil intervenes on the TARGET while the meta-computing mapping
+    # is untouched — W_meta is held by construction whenever the target is
+    # not the self-model.
     cond_deltas = []
     for i in range(n_foils):
-        foil = _BatteryFoil(model, encoder, foil_scale, rng)
+        foil = _BatteryFoil(target, encoder, foil_scale, rng)
         enc_foil = encoder.encode(foil, resolution)
         cond_deltas.append(float(np.mean(np.abs(_apply(enc_foil) - base))))
     foil_disc = float(np.mean(cond_deltas)) if cond_deltas else 0.0
@@ -320,6 +349,8 @@ def assess_twist(
         structural=structural, sensitivity=sensitivity,
         discrimination=discrimination, resolution_scale=res_scale,
         consumes=consumes,
-        twisted=bool(structural and consumes and conditional),
+        twisted=bool(structural and consumes and conditional
+                     and not target_is_meta),
         foil_discrimination=foil_disc, conditional=conditional,
+        target_is_meta=target_is_meta,
     )

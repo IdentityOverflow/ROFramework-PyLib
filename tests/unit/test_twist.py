@@ -36,6 +36,23 @@ def _make_encoder():
     return BehavioralEncoder(PROBES, [INT])
 
 
+WORLD_PROBES = [State(values={EXT: v}) for v in (-1.0, 0.0, 1.0)]
+
+
+def _make_world_encoder():
+    """Encoder probing the WORLD model — a creditable channel (v2.4):
+    battery responses are functions of slow DoFs outside W_meta."""
+    return BehavioralEncoder(WORLD_PROBES, [INT], name_prefix="worldenc")
+
+
+def _world_targeted_observer(model_cls, gain: float = 0.0) -> Observer:
+    enc = _make_world_encoder()
+    wm = RecurrentModel()
+    return Observer("o", [INT], [EXT], wm, self_model=model_cls(enc),
+                    self_encoder=enc, self_encoder_target=wm,
+                    consumption_gain=gain)
+
+
 class BlindSelfModel:
     """Receives the self-encoding but ignores it: meta = 0.9 * y.
 
@@ -152,15 +169,27 @@ class TestTwistRecognition:
         assert a.twisted is False
 
     def test_twisted_self_model_recognized(self):
-        enc = _make_encoder()
-        obs = Observer("o", [INT], [EXT], RecurrentModel(),
-                       self_model=TwistedSelfModel(enc), self_encoder=enc)
+        obs = _world_targeted_observer(TwistedSelfModel)
         obs.observe(State(values={EXT: 1.0}))
         a = obs.twist_assessment()
         assert a.structural is True
         assert a.sensitivity > a.resolution_scale
         assert a.discrimination > a.resolution_scale
+        assert a.target_is_meta is False
         assert a.twisted is True
+
+    def test_self_targeted_channel_is_trivial(self):
+        """v2.4: an encoder probing the very mapping that computes d_meta
+        reads only W_meta — live and consumed, yet no twist credit."""
+        enc = _make_encoder()
+        obs = Observer("o", [INT], [EXT], RecurrentModel(),
+                       self_model=TwistedSelfModel(enc), self_encoder=enc)
+        obs.observe(State(values={EXT: 1.0}))
+        a = obs.twist_assessment()
+        assert a.consumes is True
+        assert a.conditional is True          # its own channel is live
+        assert a.target_is_meta is True       # but it is the trivial one
+        assert a.twisted is False
 
 
 class StaleEncoder(BehavioralEncoder):
@@ -188,9 +217,7 @@ class TestConditionalClause:
     """The v2.2 state-matched intervention test (§5.4)."""
 
     def test_live_channel_passes_conditional(self):
-        enc = _make_encoder()
-        obs = Observer("o", [INT], [EXT], RecurrentModel(),
-                       self_model=TwistedSelfModel(enc), self_encoder=enc)
+        obs = _world_targeted_observer(TwistedSelfModel)
         obs.observe(State(values={EXT: 1.0}))
         a = obs.twist_assessment()
         assert a.foil_discrimination > a.resolution_scale
@@ -198,9 +225,7 @@ class TestConditionalClause:
         assert a.twisted is True
 
     def test_blind_model_fails_conditional(self):
-        enc = _make_encoder()
-        obs = Observer("o", [INT], [EXT], RecurrentModel(),
-                       self_model=BlindSelfModel(enc), self_encoder=enc)
+        obs = _world_targeted_observer(BlindSelfModel)
         obs.observe(State(values={EXT: 1.0}))
         a = obs.twist_assessment()
         assert a.conditional is False
@@ -210,9 +235,11 @@ class TestConditionalClause:
         stale channel passes the white-box checks and must fail the
         conditional one — consumption of a channel is not the channel
         carrying its cargo."""
-        enc = StaleEncoder(PROBES, [INT])
-        obs = Observer("o", [INT], [EXT], RecurrentModel(),
-                       self_model=TwistedSelfModel(enc), self_encoder=enc)
+        enc = StaleEncoder(WORLD_PROBES, [INT], name_prefix="worldenc")
+        wm = RecurrentModel()
+        obs = Observer("o", [INT], [EXT], wm,
+                       self_model=TwistedSelfModel(enc), self_encoder=enc,
+                       self_encoder_target=wm)
         obs.observe(State(values={EXT: 1.0}))
         a = obs.twist_assessment()
         assert a.structural is True
@@ -226,10 +253,7 @@ class TestV2Criterion:
     """is_conscious() = Closed(O) AND twisted(O) — binary in kind."""
 
     def _twisted_closed_observer(self) -> Observer:
-        enc = _make_encoder()
-        return Observer("o", [INT], [EXT], RecurrentModel(),
-                        self_model=TwistedSelfModel(enc), self_encoder=enc,
-                        consumption_gain=0.8)
+        return _world_targeted_observer(TwistedSelfModel, gain=0.8)
 
     def test_closed_and_twisted_is_conscious(self):
         obs = self._twisted_closed_observer()
@@ -241,22 +265,29 @@ class TestV2Criterion:
     def test_probe_is_not_conscious_regardless_of_richness(self):
         """A deep probe can be arbitrarily rich; it is not conscious in
         kind. The v1 graded score survives as richness()."""
-        enc = _make_encoder()
-        obs = Observer("o", [INT], [EXT], RecurrentModel(),
-                       self_model=TwistedSelfModel(enc), self_encoder=enc,
-                       consumption_gain=0.0)
+        obs = _world_targeted_observer(TwistedSelfModel, gain=0.0)
         _drive(obs, 80)
         assert obs.is_conscious() is False          # open loop
         assert obs.richness().consciousness_score() > 0.0
 
     def test_untwisted_loop_is_not_conscious(self):
-        enc = _make_encoder()
-        obs = Observer("o", [INT], [EXT], RecurrentModel(),
-                       self_model=BlindSelfModel(enc), self_encoder=enc,
-                       consumption_gain=0.8)
+        obs = _world_targeted_observer(BlindSelfModel, gain=0.8)
         _drive(obs, 80)
         assert obs.is_closed() is True               # feedback flows
         assert obs.is_twisted() is False             # but nothing self-representing
+        assert obs.is_conscious() is False
+
+    def test_self_targeted_loop_is_not_conscious(self):
+        """v2.4: the trivial channel — consuming an encoding of the very
+        mapping that computes d_meta — closes the loop but earns no
+        twist credit; not conscious in kind."""
+        enc = _make_encoder()
+        obs = Observer("o", [INT], [EXT], RecurrentModel(),
+                       self_model=TwistedSelfModel(enc), self_encoder=enc,
+                       consumption_gain=0.8)
+        _drive(obs, 80)
+        assert obs.is_closed() is True
+        assert obs.twist_assessment().target_is_meta is True
         assert obs.is_conscious() is False
 
     def test_no_self_model_not_conscious(self):
