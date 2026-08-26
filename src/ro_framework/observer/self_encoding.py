@@ -26,10 +26,22 @@ permuted foil. Permutation preserves summary statistics, so a system that
 consumes only a mean of its self-description — a statistic, not a
 description — is refused.
 
-The criterion itself (ro_framework.md §5.4 v2.2) is conditional-
-informational: twisted(O) ⟺ I(d_meta ; M_self | S_internal) > 0 — the
-meta channel carries information about the mapping beyond what the state
-determines. The `consumes` checks above are white-box approximations that
+The criterion itself (ro_framework.md §5.4, v2.3) is conditional-
+informational: twisted(O) ⟺ I(d_meta ; M_self | S_rest) > 0, where
+S_rest is the internal state EXCLUDING the meta channel, taken at the
+moment from which d_meta is computed (conditioning on the full internal
+state would fix d_meta and make the quantity identically zero). The
+operational test below conditions on S_rest by construction: the matched
+state is the pre-update state and the discriminated quantity is the
+freshly computed d_meta. The distribution over mappings is the induced
+measure μ_Ω restricted to the neighbourhood of configurations agreeing
+with the observer, at its resolution, on all DoFs except those
+constituting M_self — so any finite foil family samples that
+neighbourhood and a nonzero verdict is a lower bound. Physically
+(v2.3): a mapping is realized in slow DoFs (weights vs activations);
+the battery foil is a slow-DoF intervention matched on the fast state,
+and the behavioral encoding is a resolution-limited channel from the
+slow DoFs — the probe battery is that channel's R. The `consumes` checks above are white-box approximations that
 intervene on the channel CONTENTS and presuppose the channel tracks the
 mapping; a consumed-but-stale channel passes them. The `conditional`
 clause runs the state-matched intervention test end-to-end: a battery
@@ -77,7 +89,10 @@ class TwistAssessment:
         twisted: structural AND consumes AND conditional. Binary in kind;
             the graded magnitudes are reported alongside. Note the
             epistemic asymmetry: a pass confirms I > 0; a fail is
-            fail-to-detect, not proof of I = 0.
+            fail-to-detect, not proof of I = 0. And the honest scope
+            (v2.3): the twist alone does not separate self-modeling from
+            feedback — the CONJUNCTION with Closed(O) does; kind admits
+            minimal members, richness carries the discriminations.
     """
 
     structural: bool
