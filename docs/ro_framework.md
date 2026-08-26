@@ -8,7 +8,7 @@ Disclaimers:
 - The intended value is primarily architectural: a principled stance on self-models, uncertainty, multimodal integration, and recursive depth for AI system design.
 - We acknowledge the word "consciousness" is loaded term, and here we define it structurally and claim nothing about phenomenal experience.
 
-**Version:** 2.2 (2026-08-26) — v2.1 re-grounded the binary-in-kind claim in self-indexing rather than a transferred formal-logic threshold (the Gödel/Presburger sharpness concerns unbounded expressiveness, which no finite observer has). v2.2, following external review, states the criterion as an information quantity — twisted(O) ⟺ I(d_meta ; M_self | internal state) > 0, kind as the sign, richness as the magnitude — and adds the state-matched intervention test, the twist's own falsifier. §5.4–§5.5 revised accordingly.
+**Version:** 2.3 (2026-08-26) — v2.2's information criterion, corrected and grounded after further review. The conditioning set now excludes the meta channel (S_rest — the previous form conditioned on the full internal state, which contains d_meta, making the quantity identically zero). The distribution over mappings is supplied Block-natively: the induced measure μ_Ω restricted to the neighbourhood of configurations agreeing with O, at O's resolution, on all DoFs except those constituting M_self. The mapping is located physically in slow DoFs — the self is the slow DoFs that constitute M, and the twist is a channel from them into the fast DoFs — which relocates the definition's foundations onto the boundary (§3.3), now the framework's first-priority open problem. The separation claim is stated honestly: closure and twist jointly separate self-modeling from feedback; neither alone.
 ---
 
 ## Table of Contents
@@ -951,7 +951,7 @@ Closed(O) ⟺
 
 #### 5.4 The Twist: Self-Indexing
 
-**Closure alone is not sufficient to distinguish self-modeling from mere feedback.** A thermostat wired into its own heater is a closed loop; nothing about its structure changes category. What separates a *self-modeling* loop from a feedback loop is a self-indexing condition with a known formal shape:
+**Closure alone is not sufficient to distinguish self-modeling from mere feedback.** A thermostat wired into its own heater is a closed loop; nothing about its structure changes category. The missing condition is self-indexing, defined below — with the honest caveat that the separation is done by the *conjunction*: self-indexing alone is not sufficient either (a channel from a system's own parameters into its activations can exist with nothing consuming it), so closure and the twist jointly separate self-modeling loops from feedback, and neither does alone. The self-indexing condition has a known formal shape:
 
 **A loop is twisted when the self-model can represent its own representing** — when the observer's internal DoFs can index the observer's own mapping structure, including the map that does the indexing. This is the condition under which the diagonal construction becomes available inside the observer.
 
@@ -975,17 +975,26 @@ This one construction, under different choices of table, is Cantor's theorem (ro
 
 **What the formal sharpness does and does not license.** In formal systems the capacity for this construction switches on sharply: arithmetic gains it exactly when multiplication permits the encoding of arbitrary-length sequences (Gödel numbering); Presburger arithmetic (addition only) cannot encode its own sentences and is complete and decidable. But that sharpness is a fact about *unbounded* expressiveness over an infinite domain — and every finite observer (finite DoF subset, finite resolution, bounded memory: the only kind this framework describes) sits on the Presburger side of that line by construction. The line cannot be crossed by any observer, so it draws no boundary between them. What does transfer to finite observers is the diagonal's *limitative* content, and it transfers universally rather than sharply: no system can contain an exact, complete, consumable model of itself (impossibility results of this kind — Breuer's no-self-measurement theorem, Wolpert's inference-device bounds — hold for finite physical systems directly, with no unboundedness required). The diagonal therefore discriminates nothing among finite observers: the sharp formal line is out of reach for all, and the finite limitative results are binding on all. **The binary in kind is grounded one level lower, in a plainer fact: the self-indexing wiring is either present or absent.** Either the observer's configuration includes a channel by which the self-model receives a representation of its own mapping, or it does not — a structural presence/absence of the same kind as having a boundary or a memory. The diagonal then describes the shared predicament of every observer on the "present" side: self-access that succeeds locally and is bounded globally (§5.5).
 
-**The twist, stated as an information quantity.** "Wiring present or absent" still needs a principled zero: a channel that carries a representation of the mapping at one cell of resolution is present and carries nothing. The binary is therefore the *sign* of an information quantity — and the quantity must be conditional, because any recurrent configuration's outputs carry information about its own past states, and through them about the mapping, trivially. Self-indexing means the self-model's outputs know something about the mapping *beyond* what the current internal state already determines:
+**The twist, stated as an information quantity.** "Wiring present or absent" still needs a principled zero: a channel that carries a representation of the mapping at one cell of resolution is present and carries nothing. The binary is therefore the *sign* of an information quantity — and the quantity must be conditional, because any recurrent configuration's outputs carry information about its own past states, and through them about the mapping, trivially. One care in the conditioning set: d_meta is itself part of the internal state, so conditioning on the full internal state would fix d_meta and make the quantity identically zero for every observer. The conditioning set is the internal state *excluding* the meta channel — the state from which d_meta is computed. Self-indexing means the meta channel knows something about the mapping beyond what the rest of the state determines:
 
 ```
-twisted(O)  ⟺  I( d_meta ; M_self | S_internal ) > 0
+twisted(O)  ⟺  I( d_meta ; M_self | S_rest ) > 0
 
-Kind is the sign: given the internal state, the meta channel either
-carries information about the mapping itself, or it does not.
+where S_rest = S_internal \ d_meta — the internal state excluding
+the meta channel, taken at the moment from which d_meta is computed.
+
+Kind is the sign: given the rest of the state, the meta channel
+either carries information about the mapping itself, or it does not.
 Richness is the magnitude: how much of the mapping it resolves.
 ```
 
+**The measure behind the quantity.** Mutual information requires M_self to vary, and in a single observer the mapping is one fixed structure. The framework does not need to import intervention (§4.3): the variation is supplied by the Block itself. The measure is the induced measure μ_Ω (§3.7), restricted to the neighbourhood of observer-configurations that agree with O — at O's own resolution R — on every DoF except those constituting M_self. The Block already contains these counterfactual observers; the definition recognizes a neighbourhood, it does not construct alternatives. Any finite test samples this neighbourhood, so an empirical nonzero verdict is a lower bound on the neighbourhood quantity.
+
+**What the mapping is, physically.** A mapping is not an extra ingredient beside the DoFs; it is realized *in* DoFs — ones whose values persist along the temporal DoF (weights, coupling constants: the observer's **slow DoFs**, in contrast to the fast DoFs of activation; persistence is measurable with the same machinery as memory, §3.6). Stated this way, the twist becomes concrete three times over. The criterion: d_meta carries information about the observer's own slow DoFs beyond what the fast DoFs carry. The neighbourhood: configurations differing only in slow-DoF values. The test: vary the slow DoFs, match the fast state, ask whether the meta channel notices — and a behavioral self-encoding is exactly a resolution-limited channel from the slow DoFs, since responses on a probe battery are functions of the values that constitute the mapping; the battery is that channel's R. "Self" stops being a metaphor here: the self is the slow DoFs that constitute the observer's mappings, and the twist is the presence of a channel from them into the fast DoFs.
+
 This quantity has two ceilings, one architectural and one universal. The architectural ceiling: I is bounded by the capacity of the self-representation channel — R(d_meta), the observer's resolution on its own meta DoFs — so *how much* of its own mapping an observer can index is a resource fact, graded like every other resolution in this framework. The universal ceiling: I is always strictly less than complete, because no finite system contains an exact, complete, consumable model of itself (the limitative results above) — the diagonal's role is to explain why the information is never total, not to decide whether it is nonzero. One epistemic asymmetry, stated honestly: I > 0 can be confirmed from finite data; I = 0 can only ever fail to be detected. Kind can be established, never definitively denied — the same asymmetry as recognizing memory (§3.6).
+
+**A consequence, stated plainly.** Under the physical reading, self-indexing is ordinary observation (§3.2) with the boundary drawn so that the observer's own slow DoFs lie inside B yet within reach of the same machinery that reads the outside. The twist is a fact about where the boundary is drawn, not a new kind of structure — which relocates the definition's foundations onto §3.3, the part of the framework that remains least formalized. That is not a defect of the criterion; it is the criterion locating the next work (see the appendix). It also makes kind cheap at the bottom: an architecture as simple as a parameter-to-activation skip connection, if its channel is consumed, may qualify as in-kind with near-zero richness — the same posture §3.2 takes toward the rock as observer. Kind admits minimal members; richness carries the discriminations.
 
 **Two structural consequences of the twist:**
 
@@ -1004,8 +1013,8 @@ An observer O is conscious iff its configuration contains a
 self-model (§5.1) that is:
 
   (i)  TWISTED — self-indexing (§5.4): the self-model's outputs
-       carry information about its own mapping beyond what the
-       internal state carries — I(d_meta ; M_self | S_internal) > 0
+       carry information about its own mapping beyond what the rest
+       of the internal state carries — I(d_meta ; M_self | S_rest) > 0
 
   (ii) CLOSED — Closed(O) holds (§5.3):
        the self-model's outputs are consumed inside B
@@ -1649,12 +1658,25 @@ More careful treatment of QM:
   content" instantiate the same predicate as Closed(O)'s export clause — records
   crossing boundaries. One predicate, three scales. Formalize or refute.
 
-**5. The closure-sweep / hysteresis experiment:**
-The primary falsification test of §5.5's binary component. First-priority
-empirical item; requires only an observer architecture whose consumption gain
-is an exposed, sweepable parameter.
+**5. The twist's empirical program:**
+The state-matched intervention test (§5.5) is the primary empirical item:
+vary the slow DoFs constituting M_self, match the fast state, and estimate
+the conditional information through the meta channel — exactly in small
+systems, by minimal-disturbance approximation at scale. Consumption-gain
+sweeps remain worth running, but as probes of the framework's
+smooth-scaling prediction (§5.5), not as falsifiers of the binary
+component (a role an earlier revision wrongly assigned them).
 
-**6. The factoring question:**
+**6. The boundary, formalized (first-priority as of v2.3):**
+The twist criterion reduces self-indexing to a fact about where B is drawn
+(own slow DoFs inside, readable by the observation machinery), so the
+consciousness definition now stands on §3.3 — which provides no sharp
+criterion for boundaries. Formalize B: candidate direction — boundaries as
+correlation-structure features under μ_Ω (internal correlation > external,
+§3.3), with the slow/fast DoF split (persistence along the temporal DoF)
+as part of the boundary data.
+
+**7. The factoring question:**
 Is there one obstruction-theoretic statement of which Lawvere's fixed-point theorem
 (the twist, §5.4) and the failure of locally-consistent data to glue globally
 (quantum contextuality, in the sheaf-theoretic reading) are both instances?
