@@ -228,6 +228,111 @@ which quantifies the cost of the search, not the final ρ.
 
 See [experiments/grokking/13_holographic_grokking.py](../../experiments/grokking/13_holographic_grokking.py).
 
+## Weight-Space Anatomy and the Network as a Dynamical System (Experiment 14)
+
+The Phase 8a training run is exactly reproducible (fixed seeds for both the
+train/test split and model init; full-batch training), so the network can be
+regenerated on demand. `14_weight_checkpoints.py` re-runs it saving state_dicts
+at the init plus 11 milestone epochs (`experiments/grokking/checkpoints/`,
+gitignored); the rerun reproduces the original trajectory exactly (memorization
+by epoch 500, grokking at epoch 4000, same winning frequencies).
+
+### Weight patterns before vs after (14b)
+
+In raw weight space the init and grokked networks are visually
+indistinguishable — both look like Gaussian noise. The differences:
+
+- **Amplitude**: weight decay shrinks embedding entries ~5×.
+- **Spectrum**: taking the DFT of each embedding column along the input index,
+  the init spectrum is flat (top-5 frequency share 11.9% ≈ the uniform 5/48
+  baseline) while the grokked network concentrates **55.7%** of non-DC power
+  in k = {7, 9, 12, 22, 42}, across all 128 embedding dims.
+- **Code agreement**: fc2, spectrally decomposed along the *output class*
+  index, concentrates 51.2% of its power in the identical frequency set. The
+  embeddings write the Fourier code and the readout reads it.
+- **Norm dynamics**: fc1/fc2 Frobenius norms balloon ~8–9× during
+  memorization, peak near epoch 2000, then decay through the entire grokking
+  transition; embeddings shrink monotonically. Generalization happens while
+  total norm is falling — the Fourier structure is what survives compression.
+
+The lesson mirrors the 89/11 activation-variance split one level down: the
+structure is not in the matrix entries but in which basis makes them sparse.
+
+### Where the sinusoids are visible (14c)
+
+- **Per-neuron tuning curves**: after grokking, hidden neurons' sum-averaged
+  activations are near-pure sinusoids — mean single-frequency purity **92.6%**
+  across all 128 neurons (best: 99.4%+). The same neuron at init is flat noise.
+- **Raw embedding columns** hide the waves: each dim superposes all five
+  winning frequencies.
+- **The phasor circle**: projecting the 97 embedding rows onto one frequency's
+  2D Fourier plane arranges the integers on a circle ordered by k·a mod 97 —
+  the FHRR-style phasor code of experiment 13, here discovered by training
+  rather than supplied.
+
+### Continuous response field (14d, 14e)
+
+Extending the embedding tables between integers by Fourier (bandlimited)
+interpolation makes the network a function on the continuous torus.
+Coloring (x, y) by argmax class:
+
+- The grokked network renders the exact diagonal cyclic gradient of
+  z = (x+y) mod 97: 100% accurate on the integer lattice and a mean circular
+  error of **0.04 classes** off-lattice — on inputs that do not exist in its
+  training world. The continuation is smooth because the phasor code extends
+  fractional inputs onto the same circles the integers live on. (Caveat: this
+  is a joint property of the code and the bandlimited interpolant; a different
+  interpolant would degrade off-lattice behavior.)
+- The init network renders static (mean circular error 24.4 ≈ chance P/4).
+- Rendering the field at all 12 checkpoints (`14e`) shows the diagonal stripes
+  forming **while test accuracy is still 0%** (field error already 19.8 at
+  epoch 250, 14.4 at epoch 1000 vs 24.25 chance) and the transition proceeding
+  as gradual speckle dissolution, not a sudden reorganization: the stripes are
+  fully in place at 38% test accuracy (epoch 2000). The apparent suddenness of
+  grokking is partly an artifact of accuracy being a thresholded readout of a
+  smoothly cleaning field — the feature-behavioral lag of Phase 8a/8c, made
+  visible.
+
+![Response field at all 12 checkpoints: static resolving into diagonal stripes](figures/grokking_field_evolution.png)
+
+### The network iterated as a map (14f)
+
+Tying the inputs, z ← net(z, z) implements the doubling map 2z mod 97 — the
+minimal chaotic system (Lyapunov exponent ln 2). Iterating the continuous
+extension shows the outcome depends entirely on where the state is read out:
+
+- **Output level** (softmax → circular mean): the readout is a staircase in z
+  — a quantizer. Each iteration snaps the state to the nearest integer code
+  word; nearby orbits merge (99% of pairs within 14 steps) and the dynamics
+  reduce to the exact integer permutation z → 2z mod 97, periodic with period
+  ord(2) mod 97 = 48. Chaos erased by error correction.
+- **Representation level** (matched-filter phase readout from the hidden layer
+  against the network's own 48-frequency templates, keeping the fraction):
+  genuine chaos with fitted **λ = 0.47** against the ideal ln 2 ≈ 0.69, and
+  the (z₀, n) fan shows the doubling map's self-similar halving bands
+  dissolving into decorrelated speckle by n ≈ 6. The gap below ln 2 is
+  principled: for a smooth degree-2 circle map, Jensen's inequality bounds
+  λ ≤ ln 2 with equality only for perfect doubling, so the deficit measures
+  the wobble of the learned code (plus ~6% of the circle where the phase
+  readout hops a side lobe).
+
+Same weights, two regimes: the chaos of the doubling map is present in the
+network's continuous code and actively suppressed at the symbol interface.
+The trained readout buys digital reliability by collapsing the continuum onto
+the code lattice every step — a continuous carrier plus a nonlinear decider
+yielding discrete, noise-immune symbol dynamics.
+
+![Iterated map: readout staircase, orbit separation at both levels, and the self-similar fan](figures/grokking_iterated_map.png)
+
+See [experiments/grokking/14_weight_checkpoints.py](../../experiments/grokking/14_weight_checkpoints.py)
+(reproduction + checkpoints),
+[14b_weight_analysis.py](../../experiments/grokking/14b_weight_analysis.py)
+(weight patterns), [14c_sine_waves.py](../../experiments/grokking/14c_sine_waves.py)
+(sinusoids), [14d_response_field.py](../../experiments/grokking/14d_response_field.py)
+(continuous field), [14e_field_evolution.py](../../experiments/grokking/14e_field_evolution.py)
+(field through training), [14f_iterated_map.py](../../experiments/grokking/14f_iterated_map.py)
+(iterated dynamics).
+
 ## Open Questions
 
 1. **Readout projection during training.** Does readout-projected PCA find emerging features during training, not just post-hoc? The output weights themselves are changing, so the projection subspace evolves. Does this help or hurt? Need to test temporal dynamics with the evolving readout space.
