@@ -132,6 +132,11 @@ SEED_DEFAULT_CONFIG: dict = {
     "holo_context":     5,
     "holo_horizon":     6,
     "holo_demo_weight": 2.5,
+    # Creditable twist channel (experiments/feedback #F3c, twist_mount.py)
+    "twist_enabled":    False,
+    "twist_condition":  "live",    # "live" | "stale" | "blind" | "off"
+    "twist_gain":       0.5,       # consumption gain on the injected d_meta
+    "twist_n_meta":     8,         # nodes receiving the consumed d_meta
     # Arch
     "seed":             42,
     "action_feedback":  False,
@@ -487,6 +492,22 @@ class SeedBrain:
             print(f"[holo] reel mounted on SeedBrain (beta={self._holo_beta}, "
                   f"source={self._holo_source})")
 
+        # -- Creditable twist channel (optional) --------------------------------
+        self._twist = None
+        if cfg.get("twist_enabled"):
+            from twist_mount import TwistMount, InjectingSensor  # noqa: PLC0415
+            self._twist = TwistMount(
+                self._seed_net, condition=str(cfg.get("twist_condition", "live")),
+                gain=float(cfg.get("twist_gain", 0.5)),
+                n_meta=int(cfg.get("twist_n_meta", 8)), seed=seed,
+                log_capacity=int(cfg["log_capacity"]),
+            )
+            self._twist_sensor = InjectingSensor(self._sensor, self._twist)
+            self._seed_net.sensor = self._twist_sensor
+            print(f"[twist] creditable channel mounted on SeedBrain "
+                  f"(condition={self._twist.condition}, gain={self._twist.gain}, "
+                  f"meta={self._twist.meta_nodes}, resp={self._twist.resp_nodes})")
+
     def _holo_state_vec(self) -> np.ndarray:
         """Node activations as a fixed-size vector.
 
@@ -506,7 +527,11 @@ class SeedBrain:
 
     def forward(self, obs: np.ndarray) -> tuple:
         """Advance one step. Returns (fwd, turn, eat)."""
+        if self._twist is not None:
+            self._twist_sensor.injection = self._twist.pre_step()
         self._seed_net.step(obs)
+        if self._twist is not None:
+            self._twist.post_step(obs)
 
         # Read action from actuator (which reads motor node activations)
         fwd = float(self._actuator._last_action[0])

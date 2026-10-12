@@ -261,6 +261,14 @@ def measure_scale_distribution(
 
     This is experimental (Q5 in the spec). O(N²) in node count.
 
+    Validation status (experiments/feedback/01_seed_spatial_scale.py):
+    NOT a usable spatial-scale test. At criticality the thresholded MI
+    graph collapses to one giant component (correlation length is large
+    by definition, so there is no component-size distribution), and with
+    min_samples=3 the power-law check passes time-shuffled controls.
+    Prefer the spatial correlation function C(d) along the lattice
+    (power-law vs exponential decay), see experiments/feedback/findings.md.
+
     Args:
         nodes: {node_id: OscillatoryNode} with populated activation_history.
         threshold: MI threshold for considering two nodes correlated.

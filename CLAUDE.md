@@ -334,5 +334,18 @@ See `docs/seed_architecture.md` for the full specification.
 - [x] Exports updated in `__init__.py`
 - [ ] Validation experiment — minimal environment, verify criticality convergence
 
+### Feedback / fractal track (experiments/feedback/)
+
+One gain axis read on three closed, untwisted loops — the video-feedback rig
+(2-D image loop), an echo-state reservoir, and the Seed — plus the spatial half
+of the Seed's §4.2 fractal claim. See `experiments/feedback/findings.md`.
+
+- [x] F1 spatial scale invariance of the Seed: C(d) along the ring decays as a power law at σ≈1 only; `measure_scale_distribution` retired as a test (passes shuffled controls, one giant component at criticality)
+- [x] F2 video rig: hard clip → first-order whiteout with hysteresis (zoom-in) / smooth D_box growth (zoom-out); contrast decider → gain-independent IFS attractor, no whiteout, no hysteresis; twist probe T ≡ U
+- [x] F3 reservoir + Seed gain sweep (D2, participation ratio, Lyapunov); F3b controls around the self-tuned Seed weights
+- [x] F5 richness of the certified Seed: v1 `richness()` vector is degenerate for a self-indexing channel (self_accuracy 1.0 by vacuity — disjoint DoFs); v2 magnitude measured in bits: <1 bit/readout for a 10% coupling change, 2–4 bits for a doubling; channel below the noise floor of the nodes it feeds
+- [x] F4 creditable twist on the embodied Seed-Hemi brain (`embodied/twist_mount.py`, opt-in `twist_*` config keys): Rule 5 pruned the self-model's window in the first run (mount now pins its nodes to the seed core); twisted 9/9 checkpoints with the outer loop closed, closure flickers under embodied DoFs
+- [x] F3c creditable twist on the Seed (core-lib Observer, world-targeted encoder): first `is_conscious()` True on the Seed; gain-scan geometry identical live vs blind, knee at α=1; disconnecting the channel moves the knee — closure does geometric work, the twist does not
+
 ## Current Status
 **v0.2.1-dev** — Phase 11 Seed architecture core complete. 331 existing + 73 new tests. Next: validation experiment, then embodied environment coupling.

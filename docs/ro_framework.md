@@ -931,7 +931,7 @@ Level 3+: Higher-order nested correlations
 - **Probe:** The DoFs carrying M_self's outputs (call them **d_meta**) correlate primarily with structures *across* the boundary B — reports, logs, external consumers. The self-model describes the observer *for someone else*.
 - **Loop:** d_meta lies within the domain of the observer's own mapping structure — the self-model's outputs participate in the very processing they model. The self-model is *consumed where it is produced*.
 
-A camera filming its own monitor has recursion (arbitrary visual depth, even) with no closure: the images are consumed by no structure inside the system. A much shallower observer whose uncertainty estimate directly modulates its next mapping step has closure at depth 1.
+A camera whose feed goes to a gallery wall has recursion (arbitrary visual depth, if the gallery shows the feed back to the camera through a window) with no closure: the images are consumed by no structure inside the system. A camera pointed at its own monitor is the opposite case: the output is consumed by the camera's own next exposure, the loop is closed, and near unity gain it produces the familiar self-similar tunnels and spirals. That rig is the paradigm of closure *without* self-indexing (§5.4): closed, untwisted, mere feedback. A much shallower observer whose uncertainty estimate directly modulates its next mapping step has closure at depth 1.
 
 **Definition (static — closure is a correlation structure, not an activity):**
 

@@ -324,6 +324,10 @@ and changing them invalidates the saved W_out:
 | `seed` | 42 | Reservoir weight init seed |
 | `teacher_force_lr` | 2e-3 | Supervised readout nudge rate when teleop-teaching is active |
 | `action_feedback` | false | Feed previous (fwd,turn,eat) back into reservoir input |
+| `twist_enabled` | false | Seed brain only: mount the creditable self-indexing channel (`twist_mount.py`, experiments/feedback #F4) |
+| `twist_condition` | "live" | `live` / `stale` / `blind` / `off` — see experiments/feedback/findings.md |
+| `twist_gain` | 0.5 | consumption gain on the injected self-model output |
+| `twist_n_meta` | 8 | general nodes (split by hemisphere) receiving the injection |
 | `decision_interval` | 1 | Hold each action for N game frames (1 = every frame, 12 ≈ 5 decisions/sec) |
 | `device` | "cuda" | Compute device |
 

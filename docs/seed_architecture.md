@@ -838,6 +838,11 @@ def measure_scale_distribution(
 
     Returns: (is_power_law, beta, p_value)
     Together with verify_power_law, confirms full fractal structure.
+    STATUS (2026-10-12, experiments/feedback/01): NOT validated — at
+    criticality the MI graph has one giant component (no size
+    distribution to fit) and the test passes time-shuffled controls.
+    Use the ring-distance correlation function C(d) instead (power-law
+    vs exponential decay); see experiments/feedback/findings.md #F1.
     """
 ```
 
