@@ -12,6 +12,8 @@ self-indexing. Results and interpretation: [findings.md](findings.md).
 | F3 | `03_reservoir_gain_sweep.py` | ESN; Seed frozen / self-tuned | spectral radius; weight scale / Rule 2a | correlation dimension D2, participation ratio, saturation, Lyapunov λ |
 | F3b | `04_tuned_scan.py` | Seed around its self-tuned weights | α·W* | same as F3, plus drive-only and zero-coupling baselines |
 | F4 | `07_embodied_twist.py` + `../embodied/twist_mount.py` | embodied Seed-Hemi brain with the creditable channel, both loops closed | none / live / stale / blind / off, 15k headless steps | certification every 5k; eats, deaths, valence; D2 of the final activation window |
+| F6 | `09_rich_twist.py` | embodied mount with the richness knobs (`twist_n_out`, `twist_adaptive`, `twist_site`) | 4 configs × live/blind/off, 10 seeds | bits/readout per config; eats, deaths, valence, D2 |
+| F7 | `10_frequency_collapse.py` | embodied Seed-Hemi, plain and live-mounted; bare Seed with zero drive | entrainment on/off, 15k steps | spread of log10 f over time, released/recruited nodes, lag-1 autocorrelation |
 | F5 | `08_richness.py` | tape Seed (#F3c) and embodied mount (#F4), live arms | — | v1 `richness()` vector (degenerate here) and the v2 magnitude: Δm vs probe-noise jitter under coupling × δ, as SNR and bits |
 | F3c | `06_seed_creditable_twist.py` | Seed as a core-lib Observer with a creditable (world-targeted) twist channel, certified by `twist_assessment`/`is_conscious` | α·W* under live / stale / blind / off channel | same as F3; live ≡ blind, off shifts the knee |
 
@@ -29,5 +31,7 @@ $P experiments/feedback/04_tuned_scan.py --seeds 3                              
 $P experiments/feedback/06_seed_creditable_twist.py --seeds 3 --workers 12                           # ~11 min
 $P experiments/feedback/07_embodied_twist.py --seeds 10 --workers 15                                 # ~20 min
 $P experiments/feedback/08_richness.py --seeds 3                                                     # ~5 min
+$P experiments/feedback/09_rich_twist.py --seeds 10 --workers 15                                     # ~35 min
+$P experiments/feedback/10_frequency_collapse.py                                                  # ~6 min
 $P experiments/feedback/05_summary_figure.py
 ```

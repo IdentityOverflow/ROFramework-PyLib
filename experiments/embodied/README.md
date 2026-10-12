@@ -328,6 +328,10 @@ and changing them invalidates the saved W_out:
 | `twist_condition` | "live" | `live` / `stale` / `blind` / `off` — see experiments/feedback/findings.md |
 | `twist_gain` | 0.5 | consumption gain on the injected self-model output |
 | `twist_n_meta` | 8 | general nodes (split by hemisphere) receiving the injection |
+| `twist_n_out` | 1 | 1 = scalar channel; = `twist_n_meta` for one channel per meta node (#F6) |
+| `twist_adaptive` | false | self-model adapts online as a one-step forward model of its source nodes |
+| `twist_site` | "drive" | `drive` additive / `gain` multiplicative on the drive / `lr` gates the RPE modulator |
+| `twist_eta` | 0.01 | adaptation rate |
 | `decision_interval` | 1 | Hold each action for N game frames (1 = every frame, 12 ≈ 5 decisions/sec) |
 | `device` | "cuda" | Compute device |
 

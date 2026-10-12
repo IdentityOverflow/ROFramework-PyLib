@@ -99,30 +99,81 @@ class _StaleEncoder(BehavioralEncoder):
 
 
 class _SelfModel:
+    """m_j = tanh(c_j · src_j + W_j · enc + b_j), j = 1..n_out.
+
+    n_out = 1 (default): src = mean activation, W = W_CONSUME (or 0 if
+    blind) — byte-identical to the original scalar channel.
+    n_out = k: one channel per meta node; src_j = that node's activation.
+    adapt(): delta rule making m_j a one-step forward model of src_j, with
+    W frozen at 0 for a blind model (same forward model, no self-encoding).
+    """
+
     name = "twist_self"
 
-    def __init__(self, encoder: BehavioralEncoder, a_dofs, consumes: bool):
+    def __init__(self, encoder: BehavioralEncoder, a_dofs, consumes: bool,
+                 n_out: int = 1, src_idx=None, rng=None):
         self.encoder = encoder
         self.a = a_dofs
         self.input_dofs = list(a_dofs) + encoder.all_dofs
-        self.output_dofs = [M]
-        self.w = W_CONSUME.copy() if consumes else np.zeros(len(encoder.d_enc))
+        self.n_out = n_out
+        self.out = [M] if n_out == 1 else [PolarDoF(name=f"twist_m{j}") for j in range(n_out)]
+        self.output_dofs = list(self.out)
+        self.src_idx = None if src_idx is None else np.asarray(src_idx)
+        self.consumes = consumes
+        n_enc = len(encoder.d_enc)
+        if n_out == 1:
+            self.W = (W_CONSUME.copy() if consumes else np.zeros(n_enc))[None, :]
+        else:
+            rng = rng or np.random.default_rng(0)
+            self.W = rng.standard_normal((n_out, n_enc)) * 0.25 if consumes else np.zeros((n_out, n_enc))
+        self.c = np.ones(n_out)
+        self.b = np.zeros(n_out)
+        self._last = None
 
-    def __call__(self, state: State) -> State:
+    @property
+    def w(self):                       # scalar-channel compatibility
+        return self.W[0]
+
+    def _inputs(self, state: State):
         a = np.array([float(state.get_value(d) or 0.0) for d in self.a])
         enc = np.array([float(state.get_value(d)) if state.get_value(d) is not None else 0.0
                         for d in self.encoder.d_enc])
-        return State(values={M: float(np.tanh(a.mean() + self.w @ enc))})
+        src = a.mean() * np.ones(self.n_out) if self.src_idx is None else a[self.src_idx]
+        return src, enc
+
+    def __call__(self, state: State) -> State:
+        src, enc = self._inputs(state)
+        m = np.tanh(self.c * src + self.W @ enc + self.b)
+        self._last = (src, enc, m)
+        return State(values={d: float(m[j]) for j, d in enumerate(self.out)})
+
+    def adapt(self, last, target: np.ndarray, eta: float) -> float:
+        """One delta-rule step on the prediction made from `last`
+        (= (src, enc, m) captured at pre_step). Returns mean |error|."""
+        src, enc, m = last
+        err = target - m
+        g = err * (1.0 - m ** 2)
+        if self.consumes:
+            self.W += eta * np.outer(g, enc)
+        self.c += eta * g * src
+        self.b += eta * g
+        return float(np.mean(np.abs(err)))
 
 
 class TwistMount:
     def __init__(self, network, condition: str = "live", gain: float = 0.5,
                  n_meta: int = 8, n_resp: int = 4, seed: int = 0,
-                 log_capacity: int = 400) -> None:
+                 log_capacity: int = 400, n_out: int = 1, adaptive: bool = False,
+                 site: str = "drive", eta: float = 0.01) -> None:
         assert condition in ("live", "stale", "blind", "off")
+        assert site in ("drive", "gain", "lr")
+        assert n_out in (1, n_meta), "vector channel = one output per meta node"
         self.net = network
         self.condition = condition
         self.gain = 0.0 if condition == "off" else float(gain)
+        self.n_out, self.adaptive, self.site, self.eta = n_out, adaptive, site, eta
+        self.lr_factor = 1.0
+        self.pred_err = float("nan")
         self.ids = sorted(network.nodes.keys(), key=lambda k: int(k[1:]))
         self.u = [PolarDoF(name=f"tw_u_{k}") for k in self.ids]
         self.a = [PolarDoF(name=f"tw_a_{k}") for k in self.ids]
@@ -150,14 +201,18 @@ class TwistMount:
         enc_cls = _StaleEncoder if condition == "stale" else BehavioralEncoder
         self.encoder = enc_cls(probes, resp, name_prefix="tw_worldenc")
         self.mapping = ProbeMapping(network, self.ids, self.u, self.a)
-        self.self_model = _SelfModel(self.encoder, self.a, consumes=(condition != "blind"))
+        src_idx = None if n_out == 1 else [self.ids.index(k) for k in self.meta_nodes]
+        self.self_model = _SelfModel(self.encoder, self.a, consumes=(condition != "blind"),
+                                     n_out=n_out, src_idx=src_idx,
+                                     rng=np.random.default_rng(1234 + seed))
         self.observer = Observer("seed_twist", self.a, dofs.EXTERNAL_DOFS, self.mapping,
                                  self_model=self.self_model, self_encoder=self.encoder,
                                  self_encoder_target=self.mapping,
                                  consumption_gain=self.gain, log_capacity=log_capacity)
-        self.m = 0.0
+        self.m = np.zeros(n_out)
         self.step = 0
         self.n_live = len(self.ids)
+        self._last = None
 
     # -- per-step hooks ------------------------------------------------------
 
@@ -165,21 +220,38 @@ class TwistMount:
         nodes = self.net.nodes
         return np.array([nodes[k].activation if k in nodes else 0.0 for k in self.ids])
 
-    def pre_step(self) -> Dict[str, float]:
-        """Compute d_meta from the current state and return the drive injection."""
+    def pre_step(self):
+        """Compute d_meta from the current state; return (additive, multiplicative)
+        drive injections for the sensor wrapper and set lr_factor."""
         self.mapping.step_seed = self.step
         self.mapping._k = 0
         if self.observer.internal_state is None:
-            self.m = 0.0
+            self.m = np.zeros(self.n_out)
+            self._last = None
         else:
             s = self.observer._augment_with_self_encoding(self.observer.internal_state)
-            self.m = float(self.self_model(s).get_value(M) or 0.0)
-        if self.gain == 0.0:
-            return {}
-        return {k: self.gain * self.m for k in self.meta_nodes}
+            out = self.self_model(s)
+            self.m = np.array([float(out.get_value(d) or 0.0) for d in self.self_model.out])
+            self._last = self.self_model._last
+        m_mean = float(self.m.mean())
+        self.lr_factor = 1.0 + self.gain * m_mean if self.site == "lr" else 1.0
+        add, mult = {}, {}
+        if self.gain == 0.0 or self.site == "lr":
+            return add, mult
+        for j, k in enumerate(self.meta_nodes):
+            mj = float(self.m[j]) if self.n_out > 1 else m_mean
+            if self.site == "drive":
+                add[k] = self.gain * mj
+            else:                                   # "gain": multiplicative on the drive
+                mult[k] = 1.0 + self.gain * mj
+        return add, mult
 
     def post_step(self, obs: np.ndarray) -> None:
         acts = self.activations()
+        if self.adaptive and self._last is not None:
+            src_idx = self.self_model.src_idx
+            target = acts.mean() * np.ones(self.n_out) if src_idx is None else acts[src_idx]
+            self.pred_err = self.self_model.adapt(self._last, target, self.eta)
         st = State(values={self.a[i]: float(acts[i]) for i in range(len(self.ids))})
         self.observer.internal_state = st
         self.observer.observation_log.append(ObservationPair(
@@ -205,9 +277,10 @@ class TwistMount:
                 v = e.get_value(dof)
                 if v is not None:
                     s = s.set_value(dof, float(v))
-            return float(self.self_model(s).get_value(M) or 0.0)
+            o = self.self_model(s)
+            return np.array([float(o.get_value(d) or 0.0) for d in self.self_model.out])
 
-        return abs(d_meta(alt) - d_meta(self.mapping))
+        return float(np.linalg.norm(d_meta(alt) - d_meta(self.mapping)))
 
     def certify(self, seed: int = 0) -> dict:
         a = self.observer.twist_assessment(seed=seed)
@@ -223,7 +296,8 @@ class TwistMount:
                     meta_live=int(sum(1 for k in self.meta_nodes if k in self.net.nodes)))
 
     def stats(self) -> str:
-        return (f"[twist] cond={self.condition} g={self.gain} m={self.m:+.3f} "
+        return (f"[twist] cond={self.condition} g={self.gain} site={self.site} "
+                f"m̄={float(np.mean(self.m)):+.3f} pred_err={self.pred_err:.3f} "
                 f"nodes_live={self.n_live}/{len(self.ids)}")
 
 
@@ -233,14 +307,18 @@ class InjectingSensor:
     def __init__(self, inner, mount: TwistMount):
         self.inner = inner
         self.mount = mount
-        self.injection: Dict[str, float] = {}
+        self.injection = ({}, {})          # (additive, multiplicative)
 
     def __getattr__(self, name):
         return getattr(self.inner, name)
 
     def __call__(self, external_input, node_frequencies):
         drives = self.inner(external_input, node_frequencies)
-        for k, v in self.injection.items():
+        add, mult = self.injection
+        for k, v in mult.items():
+            if k in drives:
+                drives[k] *= v
+        for k, v in add.items():
             if k in drives:
                 drives[k] += v
         return drives

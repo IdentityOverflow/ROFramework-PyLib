@@ -137,6 +137,10 @@ SEED_DEFAULT_CONFIG: dict = {
     "twist_condition":  "live",    # "live" | "stale" | "blind" | "off"
     "twist_gain":       0.5,       # consumption gain on the injected d_meta
     "twist_n_meta":     8,         # nodes receiving the consumed d_meta
+    "twist_n_out":      1,         # 1 = scalar channel; = twist_n_meta for one channel per node
+    "twist_adaptive":   False,     # self-model adapts as a forward model of its source nodes
+    "twist_site":       "drive",   # "drive" (additive) | "gain" (multiplicative) | "lr" (gates RPE)
+    "twist_eta":        0.01,
     # Arch
     "seed":             42,
     "action_feedback":  False,
@@ -501,6 +505,10 @@ class SeedBrain:
                 gain=float(cfg.get("twist_gain", 0.5)),
                 n_meta=int(cfg.get("twist_n_meta", 8)), seed=seed,
                 log_capacity=int(cfg["log_capacity"]),
+                n_out=int(cfg.get("twist_n_out", 1)),
+                adaptive=bool(cfg.get("twist_adaptive", False)),
+                site=str(cfg.get("twist_site", "drive")),
+                eta=float(cfg.get("twist_eta", 0.01)),
             )
             self._twist_sensor = InjectingSensor(self._sensor, self._twist)
             self._seed_net.sensor = self._twist_sensor
@@ -572,6 +580,8 @@ class SeedBrain:
             return
         rpe = reward - self._valence_pred
         self._valence_pred += self._critic_lr * rpe
+        if self._twist is not None and self._twist.site == "lr":
+            rpe *= self._twist.lr_factor       # consumed d_meta gates plasticity
         self._seed_net.set_reward_modulator(rpe)
 
     def set_executed_action(self, action, teacher_forced: bool = False,

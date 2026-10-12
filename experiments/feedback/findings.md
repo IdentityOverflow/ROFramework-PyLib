@@ -346,6 +346,7 @@ geometry, but the burden of showing that is now on the richer design.
 | rig (trivial channel) | none, T ≡ U to 3 decimals |
 | **Seed (creditable channel, certified twisted ∧ closed)** | **none: live ≡ blind at every α; knee at α = 1 in both. Closure (channel on/off) does shift the knee.** |
 | **embodied Seed-Hemi (both loops closed, 10 seeds)** | **none: twisted 30/30, behaviour and D2 identical to blind/stale/off/none within s.e.** |
+| **embodied Seed-Hemi, 8-channel adaptive mount (3–4 bits/readout)** | **none: behaviour and D2 live ≡ blind within s.e. in all four configs** |
 
 ---
 
@@ -523,6 +524,152 @@ bandwidth, adaptivity and consumption site, in that order of cost.
 
 ---
 
+## #F6 — Richness knobs: bandwidth, adaptivity, consumption site (`09_rich_twist.py`; mount options in `twist_mount.py`)
+
+The three knobs named at the end of #F5, turned on the embodied mount
+(defaults unchanged: the scalar channel reproduces #F4 byte-for-byte):
+`twist_n_out = 8` (one channel per meta node), `twist_adaptive` (each
+m_j trained online as a one-step forward model of the node it feeds, from
+the self-encoding; blind = same forward model with W frozen at 0),
+`twist_site` ∈ drive (additive) / gain (multiplicative on the drive) /
+lr (gates Rule 2a's reward modulator). 10 seeds × 15 000 steps, live /
+blind / off, 120 runs.
+
+### Richness went up 5–10×
+
+| config | bits @ δ=1.1 (live) | bits @ δ=1.5 | twisted | closed | conscious |
+|---|---|---|---|---|---|
+| scalar (#F5, for reference) | 0.2–0.7 | 1.5–2.8 | 30/30 | 22/30 | 22/30 |
+| vec | 2.80 | 11.4 | 9/10 | **10/10** | 9/10 |
+| vec+adapt | 2.37 | 8.9 | 10/10 | 10/10 | 10/10 |
+| vec+adapt+gain | 3.08 | 8.2 | 9/10 | 10/10 | 9/10 |
+| vec+adapt+lr | **3.97** | 9.1 | 9/10 | 10/10 | 9/10 |
+
+Bandwidth is the knob that pays: eight channels carry 3–4 bits per
+readout about a 10% change in the network's weights where the scalar
+carried a fraction of one. Adaptivity does not add bits (it tunes W to
+the prediction-relevant directions, which are not the weight-sensitive
+ones); the consumption site barely matters for the magnitude. Closure
+recognition also firmed up (10/10 on every live arm vs 22/30 scalar):
+eight consumed channels give the lag-1 test more to see.
+
+### Behaviour did not move
+
+| config | live eats / deaths / valence | blind | off | live − blind (seed-paired, ± s.e.) |
+|---|---|---|---|---|
+| vec | 1.6 / 0.5 / −0.040 | 1.4 / 0.4 / −0.077 | 1.2 / 0.7 / −0.060 | Δeats +0.2±0.4, Δdeaths +0.1±0.3 |
+| vec+adapt | 1.5 / 0.2 / −0.043 | 1.3 / 0.3 / −0.037 | 1.2 / 0.7 / −0.060 | +0.2±0.4, −0.1±0.2 |
+| vec+adapt+gain | 1.5 / 0.6 / −0.058 | 1.1 / 0.5 / −0.047 | same | +0.4±0.5, +0.1±0.2 |
+| vec+adapt+lr | 1.7 / 0.2 / −0.025 | 1.5 / 0.5 / −0.024 | same | +0.2±0.4, −0.3±0.2 |
+
+Every live−blind difference is inside 1.5 s.e. Geometry likewise (ΔD2
+within ±1.3 ± 0.8; the multiplicative-gain site raises saturation in the
+live arm, 0.17 vs 0.07, the one borderline effect). The agent eats 1–2
+times per 15 000 steps in every condition including the plain brain.
+
+### Reading
+
+The richness knobs did what the channel analysis said they would: the
+information the self-model carries about the creditable slow DoFs went
+from a fraction of a bit to several bits per step, and the predicates
+sharpened. It still buys nothing an observer of the agent could see. Two
+reasons, and the second is the important one:
+
+1. The channel is still small against the drive: eight scalars at gain
+   0.5 into eight nodes, in a network of ~50 driven by a sensor of order
+   1 with a 0.05 noise floor per node.
+2. **Seed-Hemi has no behavioural dynamic range to show anything on.**
+   The plain brain eats ~1.3 times and dies ~0.4 times per 15k steps;
+   every mounted arm sits on the same numbers. Richer self-modeling cannot
+   be read off an agent whose policy is flat; the behavioural axis of this
+   substrate is saturated at zero. #7 (holographic) hit the same wall from
+   the memory side ("the reel is only as prophetic as the life it
+   records"). The twist experiments have now hit it from the self-model
+   side.
+
+So the clean statement of the programme's position after #F3c–#F6:
+kind (twisted ∧ closed) is satisfiable on the Seed and now robustly so;
+richness is measurable in bits and tunable by an order of magnitude; and
+neither has any behavioural or geometric signature on this agent, because
+the agent itself has none. The next behavioural test needs a substrate
+that acts — the ESN or WIM brains under the structured explorer, where
+#6 measured foresight r≈+0.2 — with the mount's closure done by
+intervention rather than correlation.
+
+---
+
+## #F7 — Where the frequency layers went: entrainment under embodied drive (`10_frequency_collapse.py`)
+
+Paul asked how the Seed's frequency layers are stacked and whether the
+"1 Hz" quoted earlier was per step or per second. Answering it turned up
+a result that belongs with #F4–#F6.
+
+**Units.** A node's frequency is in cycles per world step (`phase += 2π·f·dt`,
+dt = 1). Nothing in the Seed knows about seconds; the world is nominally
+60 steps/s when the viewer runs, headless runs have no clock. "Hz" in the
+spec, the seed README and earlier messages in this track is loose
+shorthand for cycles/step. A node at f = 1.0 completes a cycle per step, so
+its intrinsic drive `A·sin(phase)` is sampled once per cycle and is a
+constant; everything above f = 0.5 is aliased. About 14% of the initial
+log-uniform nodes start above that line.
+
+**Composition.** The layers are not wired. One flat population with
+log-uniform natural frequencies over two decades, ring-sorted by frequency
+(so a node's spatial neighbours are its frequency neighbours), callosal
+bridges in three nominal bands, motor nodes at 0.01–0.05. The embodied
+sensor imposes the only hand-made layering: rays → the fastest nodes, body
+receptors → mid, meters → the slowest. Bands are supposed to *emerge* by
+bandwidth-limited entrainment and match the environment's timescales
+(spec §4.3; `experiments/seed/04` got two bands from a two-timescale
+drive). Cross-scale coupling (§4.4) is Rules 1–2 across those bands; the
+only built-in asymmetry is the memory window of 80 own-periods, which
+grants slow nodes longer integration. The Bentov relation (bigger ⇒
+slower) is therefore *asserted* in the reverse direction (slower ⇒
+granted broader reach), not produced: a node's frequency is a label it is
+born with, and nothing makes a larger assembly oscillate slower. The one
+place such a law could live is propagation — one step per hop, so activity
+circulating a loop of k nodes returns with period k whatever the labels
+say. Untested.
+
+**Measured.** Spread of log10 f over 15k steps, Seed-Hemi config
+(`results_10_frequency_collapse.json`):
+
+| arm | seed | sd log10 f at 1k | at 15k | range at 15k | nodes 84 → | released / recruited |
+|---|---|---|---|---|---|---|
+| plain | 0 | 0.60 | **0.005** | [−0.61, −0.59] (f ≈ 0.25, period 4) | 60 | 38 / 14 |
+| plain | 1 | 0.73 | **0.03** | [−0.39, −0.27] (f ≈ 0.4–0.5, period ≈ 2) | 39 | 48 / 3 |
+| plain | 2 | 0.69 | 0.39 | [−1.66, −0.36] | 49 | 35 / 0 |
+| live mount | 0 | 0.65 | 0.16 | [−1.15, −0.15] | 45 | 52 / 13 |
+| live mount | 1 | 0.73 | 0.43 | [−1.84, −0.20] | 55 | 46 / 17 |
+| zero drive, entrainment on | 0 | 0.61 | 0.54 | [−1.83, −0.01] | 84 | 0 / 0 |
+| zero drive, entrainment off | 0 | 0.62 | 0.62 | [−2.00, 0.00] | 84 | 0 / 0 |
+
+Two of three plain brains end with **every node in one band** and no slow
+node anywhere; the third is halfway there and still drifting. The mounted
+arms collapse more slowly (the pinned mount nodes keep their frequencies,
+and the mount's injection is a second timescale of sorts), but the
+direction is the same. Released nodes are not frequency-selected (their
+initial log10 f is −1.0 to −1.2 in every arm, same as the kept ones);
+Rule 5 simply halves the population, which the #F4/#F6 result files
+confirm (47–58 nodes alive at the end of every arm). The zero-drive
+control barely moves in 15k steps, so entrainment alone is not the cause.
+The environment is: it has one timescale, the body's own movement
+through a static field, and the spec says one timescale gives one band.
+
+**Reading.** The spec is working as written, with a consequence it did
+not anticipate. The slow layer that §4.4 cross-scale coupling and §5
+M_self were to live in is gone within a few thousand steps of embodied
+life, and with it any integration window longer than a few steps. Every
+twist and richness run in #F4–#F6 ran on a Seed with at most one
+frequency band. This is the second face of the dynamic-range wall named
+in #F6: an agent with no slow layer cannot carry a policy that is anything
+but reactive, whatever its self-model holds. It also constrains the
+queued acting-agent test (g'): the environment must offer a second
+timescale, or a slow band must be pinned, or the next substrate inherits
+the same collapse.
+
+---
+
 ## Synthesis
 
 **Where fractals come from, on the framework's own terms.** In all three
@@ -581,7 +728,7 @@ of self-modeling, the burden is now on them: three substrates say the
 geometry is fixed by closure, gain and decider alone.
 
 **Queued.** (a) ~~The twist on the Seed~~ done, #F3c: identical knee.
-(g) richness knobs: vector d_meta, adaptive w, gated consumption site — then re-run #F4 (behaviour) and #F3c (geometry) at a richness that could in principle matter; (h) fix `_evaluate_self_accuracy` for disjoint-DoF self-models; (e) interventional closure predicate for embodied observers (v2 §5.3 — the off arm shows the test that works); (f) Rule 5 vs self-model anchoring as a §3.3 boundary case; (a') bias-matched stale control; a richer self-model (adaptive w, or a
+(g) ~~richness knobs~~ done, #F6: bits ×5–10, behaviour unchanged, substrate has no dynamic range; (g') mount the creditable channel on an agent that acts (ESN/WIM under the structured explorer) with interventional closure, in a world with a second timescale or with a pinned slow band (#F7);  (i) does the Seed's propagated activity obey a period-∝-loop-length law (Bentov from delays, #F7)? (h) fix `_evaluate_self_accuracy` for disjoint-DoF self-models; (e) interventional closure predicate for embodied observers (v2 §5.3 — the off arm shows the test that works); (f) Rule 5 vs self-model anchoring as a §3.3 boundary case; (a') bias-matched stale control; a richer self-model (adaptive w, or a
 self-model reading more of the encoding) to see whether any twist design
 can reach the geometry. (b) 2-D lattice Seed for the spatial test with
 real dynamic range. (c) Rig with the Ermentrout–Cowan sigmoid and lateral
